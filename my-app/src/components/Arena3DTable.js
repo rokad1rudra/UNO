@@ -462,8 +462,8 @@ function Table3DMesh({ activeColorHex }) {
   );
 }
 
-// 3D Curved Laser Arcs & Stadium Arena Lights (Mockup 1)
-function StadiumEnvironmentLasers() {
+// 3D Stadium Environment: Cyber Floor Grid & Floating Arena Embers (Clean, unobscured table)
+function StadiumEnvironment() {
   const particlesRef = useRef();
 
   // Floating Cyber Arena Dust Particles
@@ -488,79 +488,10 @@ function StadiumEnvironmentLasers() {
     }
   });
 
-  // 3D Curved Laser Tubes radiating across the arena to player seats (Mockup 1)
-  const redCurve = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(-1.2, 0.2, -0.4),
-        new THREE.Vector3(-4.0, 1.0, -1.2),
-        new THREE.Vector3(-8.5, 2.2, 0.5),
-        new THREE.Vector3(-16.0, 4.0, 3.0),
-      ]),
-    []
-  );
-
-  const blueCurve = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(-0.8, 0.2, -0.8),
-        new THREE.Vector3(-2.8, 1.2, -3.2),
-        new THREE.Vector3(-6.5, 2.8, -7.5),
-        new THREE.Vector3(-12.0, 5.0, -14.0),
-      ]),
-    []
-  );
-
-  const greenCurve = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(0.0, 0.2, -1.0),
-        new THREE.Vector3(0.0, 1.5, -4.5),
-        new THREE.Vector3(0.0, 3.2, -9.0),
-        new THREE.Vector3(0.0, 5.8, -16.0),
-      ]),
-    []
-  );
-
-  const yellowCurve = useMemo(
-    () =>
-      new THREE.CatmullRomCurve3([
-        new THREE.Vector3(1.2, 0.2, -0.4),
-        new THREE.Vector3(4.0, 1.0, -1.2),
-        new THREE.Vector3(8.5, 2.2, 0.5),
-        new THREE.Vector3(16.0, 4.0, 3.0),
-      ]),
-    []
-  );
-
   return (
     <group position={[0, -0.2, 0]}>
       {/* 3D Cyber Floor Grid */}
       <gridHelper args={[54, 54, "#1e293b", "#060912"]} position={[0, -1.9, 0]} />
-
-      {/* Red Curved Laser to Mira (Left) */}
-      <mesh>
-        <tubeGeometry args={[redCurve, 32, 0.045, 8, false]} />
-        <meshBasicMaterial color="#ef4444" transparent opacity={0.8} />
-      </mesh>
-
-      {/* Blue Curved Laser to Elara (Top-Left) */}
-      <mesh>
-        <tubeGeometry args={[blueCurve, 32, 0.045, 8, false]} />
-        <meshBasicMaterial color="#38bdf8" transparent opacity={0.8} />
-      </mesh>
-
-      {/* Green Curved Laser to Kai (Top-Center) */}
-      <mesh>
-        <tubeGeometry args={[greenCurve, 32, 0.045, 8, false]} />
-        <meshBasicMaterial color="#22c55e" transparent opacity={0.85} />
-      </mesh>
-
-      {/* Yellow Curved Laser to Leo (Right) */}
-      <mesh>
-        <tubeGeometry args={[yellowCurve, 32, 0.045, 8, false]} />
-        <meshBasicMaterial color="#facc15" transparent opacity={0.8} />
-      </mesh>
 
       {/* Floating Arena Dust Embers */}
       <points ref={particlesRef}>
@@ -781,31 +712,6 @@ function CenterTableCards3D({
   );
 }
 
-// 3D Glowing Cyber Anchor Nodes on table rim where lasers terminate
-function OpponentAnchorNodes3D({ count = 3 }) {
-  const anchorPositions = [
-    { pos: [-5.2, 0.16, -0.6], color: "#ef4444" },
-    { pos: [0.0, 0.17, -3.0], color: "#22c55e" },
-    { pos: [5.2, 0.16, -0.6], color: "#facc15" },
-    { pos: [-2.9, 0.17, -2.5], color: "#38bdf8" },
-  ];
-
-  return (
-    <group>
-      {anchorPositions.slice(0, Math.max(1, count)).map((node, i) => (
-        <mesh key={i} position={node.pos} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.22, 0.38, 32]} />
-          <meshStandardMaterial
-            color={node.color}
-            emissive={node.color}
-            emissiveIntensity={2.5}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 // Root 3D Arena Component (Pure 3D Canvas - Zero Drei <Html> roots)
 export default function Arena3DTable({
   room,
@@ -846,8 +752,8 @@ export default function Arena3DTable({
         <directionalLight position={[0, 10, 8]} intensity={1.8} />
         <directionalLight position={[0, -4, -10]} intensity={0.7} color="#38bdf8" />
 
-        {/* 3D Arena Stadium Floor Grid & Curved Lasers */}
-        <StadiumEnvironmentLasers />
+        {/* 3D Arena Stadium Floor Grid & Floating Embers */}
+        <StadiumEnvironment />
 
         {/* 3D Round / Oval Digital Felt Table */}
         <Table3DMesh activeColorHex={activeColorHex} />
@@ -861,9 +767,6 @@ export default function Arena3DTable({
           canDraw={me?.isTurn && room?.status === "playing"}
           onDraw={onDrawCard}
         />
-
-        {/* 3D Anchor Nodes on Table Rim where Lasers Terminate */}
-        <OpponentAnchorNodes3D count={opponents.length} />
       </Canvas>
     </div>
   );
