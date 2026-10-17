@@ -28,24 +28,79 @@ export default function AuthForm() {
   }
 
   return (
-    <div className="mx-auto max-w-md rounded-lg border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-black/30">
-      <div className="mb-6 grid grid-cols-2 rounded bg-zinc-900 p-1">
-        <button onClick={() => setMode("login")} className={`rounded px-4 py-2 font-bold ${mode === "login" ? "bg-red-500" : "text-zinc-400"}`}>
+    <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-[#0d121c]/80 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
+      {/* Mode Switcher */}
+      <div className="mb-6 grid grid-cols-2 rounded-xl bg-zinc-950/80 p-1 border border-white/5">
+        <button
+          type="button"
+          onClick={() => setMode("login")}
+          className={`rounded-lg py-2.5 text-xs font-black uppercase tracking-wider transition-all ${
+            mode === "login"
+              ? "bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-500/30"
+              : "text-zinc-400 hover:text-white"
+          }`}
+        >
           Login
         </button>
-        <button onClick={() => setMode("register")} className={`rounded px-4 py-2 font-bold ${mode === "register" ? "bg-blue-500" : "text-zinc-400"}`}>
+        <button
+          type="button"
+          onClick={() => setMode("register")}
+          className={`rounded-lg py-2.5 text-xs font-black uppercase tracking-wider transition-all ${
+            mode === "register"
+              ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-500/30"
+              : "text-zinc-400 hover:text-white"
+          }`}
+        >
           Register
         </button>
       </div>
+
       <form onSubmit={submit} className="space-y-4">
         {mode === "register" && (
-          <input name="username" required placeholder="Username" className="w-full rounded border border-white/10 bg-zinc-950 px-4 py-3 outline-none focus:border-yellow-300" />
+          <div>
+            <label className="mb-1 block text-xs font-bold text-zinc-400">PLAYER USERNAME</label>
+            <input
+              name="username"
+              required
+              placeholder="e.g. ShadowGamer"
+              className="w-full rounded-xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white placeholder-zinc-500 outline-none transition-colors focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400/50"
+            />
+          </div>
         )}
-        <input name="email" required type="email" placeholder="Email" className="w-full rounded border border-white/10 bg-zinc-950 px-4 py-3 outline-none focus:border-yellow-300" />
-        <input name="password" required type="password" placeholder="Password" className="w-full rounded border border-white/10 bg-zinc-950 px-4 py-3 outline-none focus:border-yellow-300" />
-        {error && <p className="rounded border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p>}
-        <button disabled={loading} className="w-full rounded bg-yellow-300 px-5 py-3 font-black text-zinc-950 glow-button disabled:opacity-60">
-          {loading ? "Loading..." : mode === "login" ? "Enter Arena" : "Create Account"}
+
+        <div>
+          <label className="mb-1 block text-xs font-bold text-zinc-400">EMAIL ADDRESS</label>
+          <input
+            name="email"
+            required
+            type="email"
+            placeholder="player@example.com"
+            className="w-full rounded-xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white placeholder-zinc-500 outline-none transition-colors focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400/50"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-bold text-zinc-400">PASSWORD</label>
+          <input
+            name="password"
+            required
+            type="password"
+            placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+            className="w-full rounded-xl border border-white/10 bg-zinc-950/80 px-4 py-3 text-sm text-white placeholder-zinc-500 outline-none transition-colors focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400/50"
+          />
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs font-bold text-red-200">
+            {error}
+          </div>
+        )}
+
+        <button
+          disabled={loading}
+          className="w-full rounded-xl bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 py-3.5 text-sm font-black uppercase tracking-wider text-zinc-950 shadow-xl shadow-yellow-400/20 glow-button disabled:opacity-60 hover:brightness-110 active:scale-[0.98]"
+        >
+          {loading ? "Authenticating..." : mode === "login" ? "Enter Arena" : "Create Account"}
         </button>
       </form>
     </div>

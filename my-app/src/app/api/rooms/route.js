@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserToken } from "@/lib/auth";
-import { createRoom, getPublicRoom, joinRoom } from "@/lib/game/uno-engine";
+import { createRoom, getPublicRoom, joinRoom, listPublicRooms } from "@/lib/game/uno-engine";
+
+export async function GET() {
+  const rooms = listPublicRooms();
+  return NextResponse.json({ rooms });
+}
 
 export async function POST(request) {
   const user = await getCurrentUserToken();

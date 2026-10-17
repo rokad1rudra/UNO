@@ -505,6 +505,20 @@ async function recordMatch(room) {
   }
 }
 
+function listPublicRooms() {
+  const result = [];
+  rooms.forEach((room) => {
+    result.push({
+      roomCode: room.roomCode,
+      name: room.name,
+      status: room.status,
+      playerCount: room.players.length,
+      maxPlayers: room.maxPlayers,
+    });
+  });
+  return result;
+}
+
 module.exports = {
   createRoom,
   drawCard,
@@ -513,6 +527,7 @@ module.exports = {
   leaveRoom,
   disconnectPlayer,
   cancelRoomCleanup,
+  listPublicRooms,
   playCard,
   sayUno,
   startGame,
@@ -520,3 +535,4 @@ module.exports = {
   addChat,
   rooms,
 };
+

@@ -1,39 +1,51 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import UnoCard from "@/components/UnoCard";
+import CyberAvatar from "./CyberAvatar";
+import UnoCard from "./UnoCard";
 
-const colorChoices = ["red", "yellow", "green", "blue"];
-const emojis = ["\u{1F525}", "\u{1F602}", "\u{1F62E}", "\u{1F480}", "\u{1F3AF}", "\u2764\uFE0F"];
+const emojis = ["🔥", "😂", "😮", "💀", "🎯", "❤️"];
 
 export default function RoomClient({ roomCode }) {
-  const socketRef = useRef(null);
   const [room, setRoom] = useState(null);
   const [user, setUser] = useState(null);
-  const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [wildCard, setWildCard] = useState(null);
   const [toast, setToast] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [chatFilter, setChatFilter] = useState("all"); // 'all' | 'match' | 'chat'
+  const [turnTimer, setTurnTimer] = useState(15);
+  const [activeReactions, setActiveReactions] = useState({});
+  const socketRef = useRef(null);
 
-  const me = useMemo(() => room?.players?.find((player) => player.id === user?.id), [room, user]);
-  const activePlayer = room?.players?.find((player) => player.isTurn);
-  const results = useMemo(
-    () => [...(room?.results || [])].sort((a, b) => a.placement - b.placement),
-    [room],
+  // Load Room state via REST
+  const loadRoom = useMemo(
+    () => () => {
+      fetch(`/api/rooms/${roomCode}`).then(async (res) => {
+        setLoading(false);
+        if (res.ok) {
+          const data = await res.json();
+          setRoom(data.room);
+          setError("");
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setError(err?.error || "Room not found.");
+        }
+      });
+    },
+    [roomCode]
   );
 
-  const loadRoom = useCallback(() => {
-    socketRef.current?.emit("room:get", { roomCode }, (response) => {
-      if (response?.ok) {
-        setRoom(response.room);
-        setError("");
-      } else {
-        setError(response?.error || "Room not found.");
-      }
-    });
-  }, [roomCode]);
+  // Initial load Room state via REST
+  useEffect(() => {
+    loadRoom();
+  }, [loadRoom]);
 
+  // Load Current User
   useEffect(() => {
     fetch("/api/auth/me").then(async (response) => {
       if (response.ok) setUser((await response.json()).user);
@@ -41,6 +53,7 @@ export default function RoomClient({ roomCode }) {
     });
   }, []);
 
+  // Socket Connection
   useEffect(() => {
     if (!user) return;
     const nextSocket = io({ withCredentials: true });
@@ -48,6 +61,7 @@ export default function RoomClient({ roomCode }) {
 
     const join = () => {
       nextSocket.emit("room:join", { roomCode }, (response) => {
+        setLoading(false);
         if (response?.ok) {
           setRoom(response.room);
           setError("");
@@ -58,29 +72,52 @@ export default function RoomClient({ roomCode }) {
     };
 
     nextSocket.on("connect", join);
-    if (nextSocket.connected) {
-      join();
-    }
+    if (nextSocket.connected) join();
 
     nextSocket.on("connect_error", (err) => {
       setError(err?.message ? `Connection error: ${err.message}` : "Could not connect to game server.");
     });
+
     nextSocket.on("room:changed", loadRoom);
+
     nextSocket.on("game:event", (event) => {
       if (event?.text) setToast(event.text);
     });
+
     nextSocket.on("chat:new", loadRoom);
+
     nextSocket.on("reaction:new", (reaction) => {
       if (reaction?.username && reaction?.emoji) {
         setToast(`${reaction.username}: ${reaction.emoji}`);
+        setActiveReactions((prev) => ({
+          ...prev,
+          [reaction.username]: { emoji: reaction.emoji, timestamp: Date.now() },
+        }));
       }
       loadRoom();
     });
+
     return () => {
       socketRef.current = null;
       nextSocket.disconnect();
     };
   }, [user, roomCode, loadRoom]);
+
+  // Turn Countdown Timer
+  useEffect(() => {
+    setTurnTimer(15);
+    const interval = setInterval(() => {
+      setTurnTimer((prev) => (prev > 0 ? prev - 1 : 15));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [room?.currentPlayerIndex, room?.status]);
+
+  // Auto-hide Toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   function emit(name, payload = {}) {
     setError("");
@@ -106,190 +143,671 @@ export default function RoomClient({ roomCode }) {
     setMessage("");
   }
 
+  // Me and Opponents
+  const me = room?.players?.find((p) => p.id === user?.id);
+  const opponents = (room?.players || []).filter((p) => p.id !== user?.id);
+  const activePlayer = room?.players?.[room?.currentPlayerIndex];
+
+  // Active Color Theme Tokens
+  const activeColor = room?.activeColor || "green";
+  const activeColorTrackClass =
+    activeColor === "green"
+      ? "table-glow-green"
+      : activeColor === "red"
+      ? "table-glow-red"
+      : activeColor === "blue"
+      ? "table-glow-blue"
+      : activeColor === "yellow"
+      ? "table-glow-yellow"
+      : "table-glow-green";
+
+  const activeColorHex =
+    activeColor === "green"
+      ? "#22c55e"
+      : activeColor === "red"
+      ? "#ef4444"
+      : activeColor === "blue"
+      ? "#38bdf8"
+      : activeColor === "yellow"
+      ? "#facc15"
+      : "#22c55e";
+
+  // Pre-configured opponent seats matching Mockup 1:
+  // Seat 0: Left (Mira spot)
+  // Seat 1: Top-Left (Elara spot)
+  // Seat 2: Top-Right (Kai spot)
+  // Seat 3: Right (Leo spot)
+  const seatPositions = [
+    { position: "left", label: "Mira", color: "#ef4444", turnClass: "turn-ring-red" },
+    { position: "top-left", label: "Elara", color: "#38bdf8", turnClass: "turn-ring-blue" },
+    { position: "top-right", label: "Kai", color: "#22c55e", turnClass: "turn-ring-green" },
+    { position: "right", label: "Leo", color: "#facc15", turnClass: "turn-ring-yellow" },
+  ];
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[85vh] items-center justify-center p-6 text-zinc-400">
+        <div className="text-center">
+          <div className="mx-auto mb-3 size-12 animate-spin rounded-full border-4 border-yellow-400 border-t-transparent" />
+          <p className="font-bold uppercase tracking-wider text-sm">Entering Arena...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error && !room) {
     return (
-      <div className="mx-auto max-w-xl rounded-xl border border-red-500/30 bg-red-950/20 p-8 text-center text-red-100 shadow-xl backdrop-blur">
+      <div className="mx-auto max-w-xl rounded-2xl border border-red-500/30 bg-[#0d121c]/90 p-8 text-center text-red-100 shadow-2xl backdrop-blur-xl">
         <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-red-500/20 text-3xl font-black text-red-400">
           !
         </div>
         <h2 className="mb-2 text-2xl font-black">{error}</h2>
-        <p className="mb-6 text-sm text-zinc-300">
-          The room code <span className="font-bold text-yellow-300">{roomCode}</span> may not exist, might have expired, or the table was closed.
-        </p>
+        <p className="mb-6 text-sm text-zinc-400">This room may have been closed or the table code is incorrect.</p>
         <div className="flex flex-wrap justify-center gap-3">
           <button
             onClick={() => loadRoom()}
-            className="rounded border border-white/20 bg-white/10 px-5 py-2.5 font-bold text-white hover:bg-white/20"
+            className="rounded-xl border border-white/20 bg-white/10 px-5 py-2.5 font-bold text-white hover:bg-white/20"
           >
             Retry
           </button>
           <a
-            href="/create-room"
-            className="rounded bg-red-500 px-5 py-2.5 font-bold text-white hover:bg-red-600"
-          >
-            Create Table
-          </a>
-          <a
-            href="/join-room"
-            className="rounded bg-blue-500 px-5 py-2.5 font-bold text-white hover:bg-blue-600"
-          >
-            Join Table
-          </a>
-          <a
             href="/dashboard"
-            className="rounded bg-yellow-300 px-5 py-2.5 font-black text-zinc-950 hover:bg-yellow-400"
+            className="rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 px-5 py-2.5 font-black text-zinc-950 glow-button"
           >
-            Dashboard
+            Back to Dashboard
           </a>
         </div>
       </div>
     );
   }
 
-  if (!room) return <div className="mx-auto max-w-3xl p-6 text-zinc-300">Loading room...</div>;
+  if (!room) return null;
 
   return (
-    <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-2xl font-black sm:text-3xl">{room.name}</h1>
-          <p className="text-sm text-zinc-400">Code <span className="font-black text-yellow-200">{room.roomCode}</span> · {room.status}</p>
-        </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          {room.status === "waiting" && room.hostId === user?.id && (
-            <button onClick={() => emit("game:start")} className="min-h-11 flex-1 rounded bg-yellow-300 px-4 py-2 font-black text-zinc-950 glow-button sm:flex-none">Start</button>
-          )}
-          <button onClick={() => navigator.clipboard?.writeText(room.roomCode)} className="min-h-11 flex-1 rounded border border-white/15 px-4 py-2 font-bold sm:flex-none">Copy Code</button>
-          <button
-            onClick={() => {
-              emit("room:leave");
-              window.location.href = "/dashboard";
-            }}
-            className="min-h-11 flex-1 rounded border border-red-400/30 bg-red-500/10 px-4 py-2 font-bold text-red-200 hover:bg-red-500/20 sm:flex-none"
-          >
-            Leave
-          </button>
-        </div>
+    <div className="relative min-h-[calc(100vh-64px)] w-full overflow-hidden arena-stadium-canvas pb-8">
+      {/* 4 Directional Laser Perspective Tracks (from Mockup 1) */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/* Red Laser Ray to Left */}
+        <div className="absolute left-0 top-1/2 h-0.5 w-1/3 -translate-y-1/2 bg-gradient-to-r from-red-500/60 via-red-500/20 to-transparent blur-[1px]" />
+        {/* Cyan Laser Ray to Top-Left */}
+        <div className="absolute left-1/4 top-0 h-1/2 w-0.5 -rotate-45 bg-gradient-to-b from-sky-400/60 via-sky-400/20 to-transparent blur-[1px]" />
+        {/* Green Laser Ray to Top-Right */}
+        <div className="absolute right-1/4 top-0 h-1/2 w-0.5 rotate-45 bg-gradient-to-b from-emerald-500/60 via-emerald-500/20 to-transparent blur-[1px]" />
+        {/* Yellow Laser Ray to Right */}
+        <div className="absolute right-0 top-1/2 h-0.5 w-1/3 -translate-y-1/2 bg-gradient-to-l from-amber-400/60 via-amber-400/20 to-transparent blur-[1px]" />
       </div>
 
-      {error && <p className="mb-4 rounded border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error}</p>}
-      {toast && <p className="mb-4 rounded border border-yellow-300/30 bg-yellow-300/10 px-4 py-3 text-sm text-yellow-100">{toast}</p>}
-      {room.status === "finished" && (
-        <section className="mb-5 rounded-lg border border-yellow-300/30 bg-yellow-300/10 p-4 sm:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold uppercase text-yellow-200">Match Complete</p>
-              <h2 className="mt-1 text-2xl font-black">{room.winner?.username} wins</h2>
-              {room.loser && <p className="mt-1 text-sm text-zinc-300">{room.loser.username} finished last.</p>}
-            </div>
-            <button onClick={() => (window.location.href = "/dashboard")} className="rounded bg-yellow-300 px-4 py-2 font-black text-zinc-950">
-              Back to Dashboard
-            </button>
+      {/* Top Arena HUD Bar (Matches Mockup 1) */}
+      <header className="relative z-30 mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6">
+        {/* Active Color Capsule */}
+        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0d1424]/85 px-4 py-2 shadow-xl backdrop-blur-md">
+          <span
+            className="size-6 rounded-lg shadow-lg transition-colors duration-300"
+            style={{
+              backgroundColor: activeColorHex,
+              boxShadow: `0 0 16px ${activeColorHex}`,
+            }}
+          />
+          <div className="leading-tight">
+            <span className="block text-[9px] font-black uppercase tracking-widest text-zinc-400">ACTIVE COLOR:</span>
+            <span className="text-sm font-black uppercase text-white tracking-wider">{activeColor}</span>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {results.map((result) => (
-              <div key={`${result.userId}-${result.placement}`} className="rounded border border-white/10 bg-zinc-950/70 p-3">
-                <p className="text-xs uppercase text-zinc-500">Place #{result.placement}</p>
-                <p className="truncate font-black">{result.username}</p>
-                <p className="text-xs text-zinc-400">{result.cardsLeft} cards left</p>
+        </div>
+
+        {/* Center Title Plate */}
+        <div className="rounded-2xl border border-white/10 bg-[#0d1424]/85 px-6 py-2 shadow-xl backdrop-blur-md">
+          <h1 className="text-sm sm:text-base font-black tracking-widest text-white uppercase">UNO ONLINE ARENA</h1>
+          <p className="text-[11px] font-bold text-zinc-400 text-center">
+            {room.name} · <span className="font-mono text-yellow-300">{room.roomCode}</span>
+          </p>
+        </div>
+
+        {/* Options / Action Menu */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex items-center gap-2 rounded-2xl border border-white/15 bg-[#121929]/90 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white shadow-xl backdrop-blur-md hover:border-yellow-400/50 hover:bg-[#1a233a] active:scale-95"
+          >
+            <span>Options</span>
+            <span className={`transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`}>⌵</span>
+          </button>
+
+          {/* Menu Dropdown */}
+          {menuOpen && (
+            <div className="absolute right-0 top-12 z-50 w-52 rounded-2xl border border-white/15 bg-[#0a0f1d]/95 p-2 shadow-2xl backdrop-blur-2xl">
+              <div className="border-b border-white/10 px-3 py-2 text-[11px] text-zinc-400">
+                <p className="font-bold text-white">{room.players?.length}/{room.maxPlayers} Players Seated</p>
+                <p className="font-mono text-yellow-300 font-bold">Code: {room.roomCode}</p>
               </div>
-            ))}
+
+              {room.status === "waiting" && room.hostId === user?.id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    emit("game:start");
+                    setMenuOpen(false);
+                  }}
+                  className="mt-1 flex w-full items-center gap-2 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 px-3 py-2 text-xs font-black text-zinc-950 hover:brightness-110"
+                >
+                  ▶ Start Match
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(room.roomCode);
+                  setToast("Room code copied to clipboard!");
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10"
+              >
+                📋 Copy Code
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setChatOpen(!chatOpen);
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-white/10"
+              >
+                💬 {chatOpen ? "Hide Chat Widget" : "Show Chat Widget"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  emit("room:leave");
+                  window.location.href = "/dashboard";
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-red-400 hover:bg-red-500/10"
+              >
+                🚪 Leave Table
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Floating Notifications / Toasts */}
+      {toast && (
+        <div className="fixed top-20 left-1/2 z-50 -translate-x-1/2 rounded-full border border-yellow-400/50 bg-[#0d1424]/95 px-6 py-2 text-xs font-black uppercase tracking-wider text-yellow-300 shadow-[0_0_30px_rgba(250,204,21,0.4)] backdrop-blur-xl animate-bounce">
+          ⚡ {toast}
+        </div>
+      )}
+
+      {/* Victory Celebration Screen (Matches Mockup 3) */}
+      {room.status === "finished" && (
+        <section className="relative z-40 mx-auto my-4 max-w-3xl rounded-3xl border border-yellow-400/40 bg-gradient-to-b from-yellow-500/15 via-[#0d121c]/95 to-[#07090e]/98 p-6 shadow-2xl backdrop-blur-2xl">
+          <div className="text-center">
+            <span className="inline-block text-4xl mb-1">👑</span>
+            <p className="text-xs font-black uppercase tracking-widest text-yellow-300">MATCH COMPLETE</p>
+            <h2 className="mt-1 text-3xl font-black text-white sm:text-4xl">
+              {room.winner?.username} WINS!
+            </h2>
+          </div>
+
+          {/* 3D Champion Podium */}
+          <div className="mt-6 flex items-end justify-center gap-3 sm:gap-6">
+            {room.results?.[1] && (
+              <div className="flex flex-col items-center">
+                <CyberAvatar name={room.results[1].username} size="sm" index={1} />
+                <p className="mt-1.5 text-xs font-bold text-white max-w-20 truncate">{room.results[1].username}</p>
+                <div className="mt-2 flex h-20 w-20 sm:w-24 flex-col items-center justify-center rounded-t-xl border border-slate-400/40 bg-gradient-to-t from-slate-900 to-slate-800 shadow-xl">
+                  <span className="text-base font-black text-slate-300">2nd</span>
+                </div>
+              </div>
+            )}
+
+            {room.results?.[0] && (
+              <div className="flex flex-col items-center">
+                <div className="rounded-2xl ring-4 ring-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.6)]">
+                  <CyberAvatar name={room.results[0].username} size="md" index={0} />
+                </div>
+                <p className="mt-2 text-sm font-black text-yellow-300 max-w-24 truncate">{room.results[0].username}</p>
+                <div className="mt-2 flex h-28 w-24 sm:w-28 flex-col items-center justify-center rounded-t-xl border border-yellow-400/60 bg-gradient-to-t from-amber-950 to-amber-700 shadow-2xl shadow-yellow-400/30">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-300">CHAMPION</span>
+                  <span className="text-xl font-black text-white">1st 🏆</span>
+                </div>
+              </div>
+            )}
+
+            {room.results?.[2] && (
+              <div className="flex flex-col items-center">
+                <CyberAvatar name={room.results[2].username} size="sm" index={2} />
+                <p className="mt-1.5 text-xs font-bold text-white max-w-20 truncate">{room.results[2].username}</p>
+                <div className="mt-2 flex h-16 w-20 sm:w-24 flex-col items-center justify-center rounded-t-xl border border-amber-700/40 bg-gradient-to-t from-zinc-900 to-amber-950 shadow-xl">
+                  <span className="text-base font-black text-amber-500">3rd</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 mx-auto grid max-w-md grid-cols-3 gap-2.5">
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2.5 text-center">
+              <p className="text-[9px] font-black uppercase text-emerald-400">XP EARNED</p>
+              <p className="text-base font-black text-white">+120 XP</p>
+            </div>
+            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-2.5 text-center">
+              <p className="text-[9px] font-black uppercase text-yellow-400">COINS</p>
+              <p className="text-base font-black text-white">+75 🪙</p>
+            </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-2.5 text-center">
+              <p className="text-[9px] font-black uppercase text-amber-400">STREAK</p>
+              <p className="text-base font-black text-white">🔥 Active</p>
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-center gap-3">
+            <button
+              onClick={() => (window.location.href = "/dashboard")}
+              className="rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 px-6 py-2.5 text-sm font-black text-zinc-950 shadow-xl glow-button"
+            >
+              Back to Lobby
+            </button>
           </div>
         </section>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_330px]">
-        <section className="rounded-lg border border-white/10 bg-white/[0.035] p-3 sm:p-4">
-          <div className="mb-4 grid gap-2 sm:mb-6 sm:grid-cols-2 sm:gap-3 xl:grid-cols-3">
-            {room.players.map((player) => (
-              <div key={player.id} className={`rounded border p-3 ${player.isTurn ? "border-yellow-300 bg-yellow-300/10" : "border-white/10 bg-zinc-950/60"}`}>
-                <div className="flex items-center gap-3">
-                  <span className="size-4 rounded-full" style={{ background: player.avatarColor }} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-bold">
-                      {player.username}
-                      {!player.connected && <span className="ml-2 text-xs text-red-400 font-normal">(offline)</span>}
-                    </p>
-                    <p className="text-xs text-zinc-400">
-                      {player.finished ? `Place #${player.placement}` : `${player.cardCount} cards${player.saidUno ? " · UNO" : ""}`}
-                    </p>
+      {/* Main Arena Stadium Layout (Matches Mockup 1) */}
+      <main className="relative mx-auto mt-2 max-w-7xl px-2 sm:px-4">
+        {/* Curved Perspective Felt Table Canvas */}
+        <div className={`relative min-h-[580px] sm:min-h-[660px] w-full cyber-arena-table ${activeColorTrackClass} p-4 sm:p-8 flex flex-col justify-between overflow-visible`}>
+          {/* Inner Table Concentric Oval Track Accent */}
+          <div className="pointer-events-none absolute inset-6 sm:inset-10 rounded-[120px] border border-white/5 shadow-inner" />
+
+          {/* Opponents Seating Arc (Top & Sides) */}
+          <div className="relative z-20 flex flex-wrap items-center justify-around gap-4 pt-2">
+            {opponents.length > 0 ? (
+              opponents.map((player, idx) => {
+                const isCurrentTurn = player.isTurn;
+                const seatInfo = seatPositions[idx % seatPositions.length];
+                const reaction = activeReactions[player.username];
+
+                return (
+                  <div key={player.id} className="relative flex flex-col items-center">
+                    {/* Floating Speech Reaction Bubble (Matches Mockup 1) */}
+                    {reaction && Date.now() - reaction.timestamp < 4500 && (
+                      <div className="speech-bubble absolute -top-10 z-30 px-3 py-1 text-xs font-black text-white animate-bounce">
+                        {reaction.emoji}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      {/* Active Turn Indicator Ring (Mockup 1) */}
+                      {isCurrentTurn && (
+                        <div className={`flex flex-col items-center justify-center rounded-full border-2 p-1.5 ${seatInfo.turnClass} bg-black/60 shadow-lg`}>
+                          <span className="text-[7px] font-black uppercase tracking-tight text-zinc-300">CURRENT</span>
+                          <span className="text-[8px] font-black uppercase text-yellow-300">TURN</span>
+                        </div>
+                      )}
+
+                      {/* Hexagonal Cyber Avatar Pod (Mockup 1) */}
+                      <div
+                        className={`relative rounded-2xl p-1 transition-transform ${
+                          isCurrentTurn ? "scale-110" : ""
+                        }`}
+                        style={{
+                          background: `linear-gradient(135deg, ${seatInfo.color} 0%, rgba(15,23,42,0.8) 100%)`,
+                          boxShadow: isCurrentTurn ? `0 0 25px ${seatInfo.color}` : "none",
+                        }}
+                      >
+                        <CyberAvatar
+                          name={player.username}
+                          avatarColor={player.avatarColor || seatInfo.color}
+                          index={idx}
+                          size="md"
+                        />
+                        {/* Online status indicator */}
+                        <span
+                          className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-zinc-950 ${
+                            player.connected ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-zinc-500"
+                          }`}
+                        />
+                      </div>
+
+                      {/* Countdown Timer Dial (Mockup 1) */}
+                      {isCurrentTurn && (
+                        <div className="flex flex-col items-center justify-center rounded-full border-2 border-emerald-400 bg-black/75 p-1.5 shadow-[0_0_15px_rgba(52,211,153,0.7)]">
+                          <span className="text-[7px] font-black uppercase text-zinc-400">TIME LEFT</span>
+                          <span className="text-[10px] font-black text-emerald-300">{turnTimer}s</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Cyber Pod Banner: Name + Cards Badge */}
+                    <div className="mt-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#090d18]/90 px-3 py-0.5 text-center shadow-lg">
+                      <span className="max-w-20 truncate text-xs font-black text-white">{player.username}</span>
+                      <span className="rounded-full bg-yellow-400/20 px-1.5 text-[10px] font-black text-yellow-300 border border-yellow-400/30">
+                        {player.cardCount}
+                      </span>
+                    </div>
                   </div>
+                );
+              })
+            ) : (
+              <div className="rounded-2xl border border-dashed border-white/20 bg-white/[0.03] px-6 py-4 text-center">
+                <p className="text-sm font-bold text-zinc-300">Waiting for opponents to take seats...</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Share table room code <span className="font-mono text-yellow-300 font-black">{room.roomCode}</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Center Table: Fanned Discard Pile + 3D Draw Deck (Mockup 1) */}
+          <div className="relative z-20 my-auto flex items-center justify-center gap-8 sm:gap-14 py-4">
+            {/* Discard Pile with Underlying 3D Fanned Cards Stack */}
+            <div className="relative flex flex-col items-center">
+              <div className="relative flex items-center justify-center">
+                {/* 3 Underlying Fanned Cards (Creates the 3D played stack in Mockup 1) */}
+                <div className="pointer-events-none absolute -rotate-[22deg] -translate-x-3 translate-y-1 opacity-70">
+                  <UnoCard card={{ color: "red", value: "8" }} small />
+                </div>
+                <div className="pointer-events-none absolute -rotate-[10deg] -translate-x-1.5 opacity-80">
+                  <UnoCard card={{ color: "yellow", value: "reverse" }} small />
+                </div>
+                <div className="pointer-events-none absolute rotate-[14deg] translate-x-3 translate-y-1 opacity-70">
+                  <UnoCard card={{ color: "blue", value: "skip" }} small />
+                </div>
+
+                {/* Top Active Discard Card */}
+                <div
+                  className="relative z-10 transition-transform hover:scale-105"
+                  style={{
+                    filter: `drop-shadow(0 0 25px ${activeColorHex})`,
+                  }}
+                >
+                  {room.topCard ? (
+                    <UnoCard card={room.topCard} highlightColor={activeColorHex} />
+                  ) : (
+                    <div className="h-28 w-20 sm:h-36 sm:w-24 rounded-2xl border-2 border-dashed border-white/20 grid place-items-center text-xs text-zinc-400 font-bold">
+                      Empty
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
+              <span className="mt-3 rounded-full border border-white/10 bg-black/80 px-3 py-0.5 text-xs font-black text-zinc-300 shadow">
+                Discard: <span className="text-white">{room.discardCount}</span>
+              </span>
+            </div>
 
-          <div className="grid min-h-56 place-items-center rounded-lg border border-white/10 bg-zinc-950/70 p-4 sm:min-h-72 sm:p-5">
-            <div className="flex items-center gap-4 sm:gap-6">
-              <div className="text-center">
+            {/* 3D Interactive Draw Deck (Mockup 1) */}
+            <button
+              type="button"
+              onClick={() => emit("game:draw")}
+              disabled={!me?.isTurn || room.status !== "playing"}
+              className="group relative flex flex-col items-center transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <div className="draw-deck-3d rounded-2xl">
                 <UnoCard back />
-                <p className="mt-2 text-sm text-zinc-400">{room.deckCount} left</p>
               </div>
-              <div className="text-center">
-                <UnoCard card={room.topCard} />
-                <p className="mt-2 text-sm text-zinc-400">Active color: <span className="font-bold text-white">{room.activeColor || "none"}</span></p>
+              <span className="mt-3 rounded-full border border-sky-400/40 bg-black/80 px-3 py-0.5 text-xs font-black text-sky-300 shadow">
+                Deck: <span className="text-yellow-300">{room.deckCount}</span>
+              </span>
+            </button>
+          </div>
+
+          {/* Bottom Area: Centered SAY UNO Button + Hand Arc (Matches Mockup 1) */}
+          <div className="relative z-30 mt-auto flex flex-col items-center">
+            {/* Glowing 3D "SAY UNO" Button directly above player's hand */}
+            <div className="mb-3">
+              <button
+                type="button"
+                onClick={() => emit("game:uno")}
+                disabled={room.status !== "playing" || me?.finished}
+                className="say-uno-gloss-btn rounded-full px-10 py-3 text-lg font-black tracking-widest text-white uppercase shadow-2xl transition-all hover:scale-105 active:scale-95 disabled:opacity-40"
+              >
+                SAY UNO
+              </button>
+            </div>
+
+            {/* Hand Status Bar */}
+            <div className="mb-2 flex items-center justify-between w-full max-w-2xl px-4 text-xs font-bold">
+              <div className="flex items-center gap-2">
+                <span className={`size-2.5 rounded-full ${me?.isTurn ? "bg-emerald-400 animate-ping" : "bg-yellow-400"}`} />
+                <span className={me?.isTurn ? "text-emerald-300 font-black text-sm drop-shadow" : "text-yellow-300/90 font-bold"}>
+                  {room.status === "finished"
+                    ? "Game finished"
+                    : me?.isTurn
+                    ? "⚡ YOUR TURN! Click a playable card or draw."
+                    : activePlayer
+                    ? `${activePlayer.username}'s turn...`
+                    : "Waiting to start..."}
+                </span>
               </div>
+              <span className="text-zinc-300 font-mono">
+                Hand: <strong className="text-yellow-300">{me?.hand?.length || 0}</strong> cards
+              </span>
+            </div>
+
+            {/* Realistic Fan-Spread Hand Arc (Matches Mockup 1) */}
+            <div className="relative flex items-end justify-center w-full overflow-x-auto pb-4 pt-6 px-4">
+              {(me?.hand || []).map((card, idx) => {
+                const total = me?.hand?.length || 1;
+                const mid = (total - 1) / 2;
+                // Calculate realistic handheld fanning angle & vertical arc
+                const tilt = Math.max(-16, Math.min(16, (idx - mid) * 4));
+                const translateY = Math.abs(idx - mid) * 2.5;
+
+                // Check if card is currently playable
+                const isPlayable =
+                  me?.isTurn &&
+                  room.status === "playing" &&
+                  (card.color === "wild" ||
+                    card.color === room.activeColor ||
+                    card.value === room.topCard?.value);
+
+                return (
+                  <div
+                    key={card.id}
+                    style={{
+                      transform: `rotate(${tilt}deg) translateY(${translateY}px)`,
+                    }}
+                    className={`relative transition-all duration-200 ${idx !== 0 ? "-ml-5 sm:-ml-7" : "ml-0"}`}
+                  >
+                    <UnoCard
+                      card={card}
+                      playable={isPlayable}
+                      disabled={!me?.isTurn || room.status !== "playing" || me?.finished}
+                      onClick={() => play(card)}
+                    />
+                  </div>
+                );
+              })}
+
+              {!me?.hand?.length && (
+                <div className="py-8 text-center text-xs font-bold text-zinc-500">
+                  {room.status === "waiting" ? "Cards will be dealt when match starts!" : "No cards in hand."}
+                </div>
+              )}
             </div>
           </div>
+        </div>
 
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <p className="font-bold">
-              {room.status === "finished" ? "Game finished" : activePlayer ? `${activePlayer.username}'s turn` : "Waiting for players"}
-            </p>
-            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-              <button onClick={() => emit("game:draw")} disabled={!me?.isTurn} className="rounded bg-blue-500 px-4 py-2 font-black disabled:opacity-40">Draw Card</button>
-              <button onClick={() => emit("game:uno")} disabled={room.status !== "playing" || me?.finished} className="rounded bg-red-500 px-4 py-2 font-black disabled:opacity-40">Say UNO</button>
+        {/* Bottom Left Quick Controls (Mockup 1) */}
+        <div className="absolute bottom-4 left-6 z-30 hidden sm:flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setToast("Arena table audio enabled")}
+            className="flex size-10 items-center justify-center rounded-2xl border border-white/10 bg-[#0d1424]/80 text-zinc-300 shadow-xl backdrop-blur-md hover:border-white/30 hover:text-white"
+            title="Audio Settings"
+          >
+            ⚙
+          </button>
+          <a
+            href="/rules"
+            target="_blank"
+            className="flex size-10 items-center justify-center rounded-2xl border border-white/10 bg-[#0d1424]/80 text-zinc-300 shadow-xl backdrop-blur-md hover:border-white/30 hover:text-white"
+            title="Official Rules"
+          >
+            📖
+          </a>
+        </div>
+
+        {/* Floating "CHAT & MATCH LOG" Widget (Matches Mockup 1) */}
+        {chatOpen ? (
+          <aside className="absolute bottom-4 right-4 z-40 w-80 sm:w-88 max-w-[calc(100vw-32px)] floating-chat-widget rounded-2xl p-3.5">
+            {/* Header with Badges and Close button */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-black uppercase tracking-wider text-white">CHAT & MATCH LOG</h3>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setChatFilter("all")}
+                    className={`rounded px-1.5 py-0.5 text-[8px] font-black uppercase ${
+                      chatFilter === "all" ? "bg-purple-500 text-white" : "bg-white/10 text-zinc-400"
+                    }`}
+                  >
+                    BADGES
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChatFilter("match")}
+                    className={`rounded px-1.5 py-0.5 text-[8px] font-black uppercase ${
+                      chatFilter === "match" ? "bg-blue-500 text-white" : "bg-white/10 text-zinc-400"
+                    }`}
+                  >
+                    PLAYED
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChatFilter("chat")}
+                    className={`rounded px-1.5 py-0.5 text-[8px] font-black uppercase ${
+                      chatFilter === "chat" ? "bg-emerald-500 text-white" : "bg-white/10 text-zinc-400"
+                    }`}
+                  >
+                    CHAT
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                className="text-xs font-bold text-zinc-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
-          </div>
 
-          <div className="mt-6">
-            <h2 className="mb-3 text-lg font-black">Your Hand</h2>
-            <div className="grid min-h-28 grid-cols-4 gap-2 pb-4 sm:flex sm:min-h-36 sm:gap-3 sm:overflow-x-auto">
-              {(me?.hand || []).map((card) => (
-                <UnoCard key={card.id} card={card} disabled={!me?.isTurn || room.status !== "playing" || me?.finished} onClick={() => play(card)} />
-              ))}
-              {!me?.hand?.length && <p className="text-zinc-400">No cards visible yet.</p>}
+            {/* Scrollable Message Feed */}
+            <div className="my-2.5 h-44 sm:h-52 space-y-1.5 overflow-y-auto pr-1 text-xs">
+              {/* Match Events */}
+              {(chatFilter === "all" || chatFilter === "match") &&
+                room.events?.slice(-12).map((event) => (
+                  <div key={event.id} className="flex items-start gap-1.5 rounded-lg bg-white/[0.03] p-1.5 border border-white/5">
+                    <span className="shrink-0 rounded bg-blue-500/25 px-1 py-0.2 text-[8px] font-black text-blue-300">
+                      MATCH
+                    </span>
+                    <span className="text-[11px] text-zinc-300 leading-tight">{event.text}</span>
+                  </div>
+                ))}
+
+              {/* Chat Messages */}
+              {(chatFilter === "all" || chatFilter === "chat") &&
+                room.chat?.slice(-20).map((c) => (
+                  <div key={c.id} className="flex items-start gap-1.5 rounded-lg bg-white/[0.04] p-1.5 border border-white/5">
+                    <span className="shrink-0 rounded bg-emerald-500/25 px-1 py-0.2 text-[8px] font-black text-emerald-300">
+                      CHAT
+                    </span>
+                    <p className="text-[11px] leading-tight">
+                      <strong className="text-yellow-300 mr-1">{c.username}:</strong>
+                      <span className="text-zinc-200">{c.message}</span>
+                    </p>
+                  </div>
+                ))}
             </div>
-          </div>
-        </section>
 
-        <aside className="rounded-lg border border-white/10 bg-white/[0.035] p-3 sm:p-4">
-          <h2 className="text-xl font-black">Chat</h2>
-          <div className="mt-3 h-72 space-y-3 overflow-y-auto rounded bg-zinc-950/70 p-3">
-            {room.chat?.map((chat) => (
-              <p key={chat.id} className="text-sm"><span className="font-bold text-yellow-200">{chat.username}:</span> {chat.message}</p>
-            ))}
-            {room.events?.slice(-8).map((event) => (
-              <p key={event.id} className="text-xs text-zinc-500">{event.text}</p>
-            ))}
-          </div>
-          <form onSubmit={sendChat} className="mt-3 flex gap-2">
-            <input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message" className="min-w-0 flex-1 rounded border border-white/10 bg-zinc-950 px-3 py-2 outline-none focus:border-yellow-300" />
-            <button className="rounded bg-yellow-300 px-3 font-black text-zinc-950">Send</button>
-          </form>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {emojis.map((emoji) => (
-              <button key={emoji} onClick={() => emit("reaction:send", { emoji })} className="rounded border border-white/10 bg-zinc-950 px-3 py-2 text-xl">{emoji}</button>
-            ))}
-          </div>
-          {room.winner && <p className="mt-4 rounded border border-green-400/30 bg-green-500/10 p-4 font-black text-green-200">{room.winner.username} wins!</p>}
-        </aside>
-      </div>
-
-      {wildCard && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
-          <div className="rounded-lg border border-white/10 bg-zinc-950 p-6">
-            <h2 className="mb-4 text-xl font-black">Choose a color</h2>
-            <div className="grid grid-cols-2 gap-3">
-              {colorChoices.map((color) => (
-                <button key={color} onClick={() => play(wildCard, color)} className={`card-${color} rounded px-8 py-5 font-black uppercase`}>
-                  {color}
+            {/* Quick Reactions Bar */}
+            <div className="flex items-center justify-between gap-1 border-t border-white/10 pt-2">
+              {emojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => emit("reaction:send", { emoji })}
+                  className="rounded-lg border border-white/10 bg-zinc-950/70 p-1.5 text-sm transition-transform hover:scale-125 hover:border-yellow-400 active:scale-95"
+                >
+                  {emoji}
                 </button>
               ))}
             </div>
+
+            {/* Chat Input */}
+            <form onSubmit={sendChat} className="mt-2 flex items-center gap-1.5">
+              <input
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Send match chat..."
+                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-1.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-yellow-400"
+              />
+              <button
+                type="submit"
+                className="rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 px-3 py-1.5 text-xs font-black text-zinc-950 glow-button hover:brightness-110 active:scale-95"
+              >
+                ➤
+              </button>
+            </form>
+          </aside>
+        ) : (
+          /* Minimized Chat Capsule Button */
+          <button
+            type="button"
+            onClick={() => setChatOpen(true)}
+            className="absolute bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#0d1424]/90 px-4 py-2 text-xs font-black uppercase text-yellow-300 shadow-2xl backdrop-blur-md hover:border-yellow-400"
+          >
+            <span>💬 Chat & Match Log</span>
+            <span className="size-2 rounded-full bg-emerald-400 animate-ping" />
+          </button>
+        )}
+      </main>
+
+      {/* Wild Color Wheel Modal (Matches Mockup 1) */}
+      {wildCard && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/85 p-4 backdrop-blur-md">
+          <div className="relative rounded-3xl border border-white/20 bg-[#0c1220] p-8 text-center shadow-2xl">
+            <h2 className="text-2xl font-black text-white">CHOOSE WILD COLOR</h2>
+            <p className="mt-1 text-xs text-zinc-400">Select the active color for the next player</p>
+
+            {/* 4-Quadrant Color Wheel */}
+            <div className="relative mx-auto mt-6 size-60 overflow-hidden rounded-full border-4 border-zinc-950 shadow-2xl grid grid-cols-2 grid-rows-2">
+              <button
+                type="button"
+                onClick={() => play(wildCard, "red")}
+                className="bg-red-500 hover:brightness-125 font-black text-white uppercase text-sm flex items-center justify-center transition-all hover:scale-105"
+              >
+                RED
+              </button>
+              <button
+                type="button"
+                onClick={() => play(wildCard, "blue")}
+                className="bg-sky-500 hover:brightness-125 font-black text-white uppercase text-sm flex items-center justify-center transition-all hover:scale-105"
+              >
+                BLUE
+              </button>
+              <button
+                type="button"
+                onClick={() => play(wildCard, "yellow")}
+                className="bg-amber-400 hover:brightness-125 font-black text-zinc-950 uppercase text-sm flex items-center justify-center transition-all hover:scale-105"
+              >
+                YELLOW
+              </button>
+              <button
+                type="button"
+                onClick={() => play(wildCard, "green")}
+                className="bg-emerald-500 hover:brightness-125 font-black text-white uppercase text-sm flex items-center justify-center transition-all hover:scale-105"
+              >
+                GREEN
+              </button>
+            </div>
+
             <button
+              type="button"
               onClick={() => setWildCard(null)}
-              className="mt-4 w-full rounded border border-white/20 py-2 text-sm font-bold text-zinc-300 hover:bg-white/10"
+              className="mt-6 rounded-xl border border-white/20 px-6 py-2 text-xs font-bold text-zinc-400 hover:text-white"
             >
               Cancel
             </button>
