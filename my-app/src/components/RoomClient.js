@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { io } from "socket.io-client";
 import CyberAvatar from "./CyberAvatar";
 import UnoCard from "./UnoCard";
+import OpponentSeatsOverlay from "./OpponentSeatsOverlay";
 
 const Arena3DTable = dynamic(() => import("./Arena3DTable"), { ssr: false });
 
@@ -241,6 +242,14 @@ export default function RoomClient({ roomCode }) {
         activeReactions={activeReactions}
         onDrawCard={() => emit("game:draw")}
         onPlayCard={play}
+      />
+
+      {/* Opponent Seats Pure React DOM Overlay (Zero Three.js sub-roots) */}
+      <OpponentSeatsOverlay
+        opponents={opponents}
+        activePlayer={activePlayer}
+        turnTimer={turnTimer}
+        activeReactions={activeReactions}
       />
 
       {/* Top Arena HUD Bar (Matches Mockup 1) */}
