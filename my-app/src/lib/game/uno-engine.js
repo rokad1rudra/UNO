@@ -208,8 +208,8 @@ function leaveRoom(roomCode, playerId) {
 function startGame(roomCode, playerId) {
   const room = rooms.get(roomCode?.toUpperCase());
   if (!room) return { ok: false, error: "Room not found." };
-  if (room.status !== "waiting") return { ok: false, error: "Game has already started." };
-  if (room.hostId !== playerId) return { ok: false, error: "Only the host can start." };
+  if (room.status !== "waiting" && room.status !== "finished") return { ok: false, error: "Game has already started." };
+  if (room.status === "waiting" && room.hostId !== playerId) return { ok: false, error: "Only the host can start." };
   if (room.players.length < 2) return { ok: false, error: "UNO needs at least 2 players." };
 
   room.status = "playing";

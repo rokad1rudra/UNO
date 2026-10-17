@@ -6,6 +6,7 @@ import { io } from "socket.io-client";
 import CyberAvatar from "./CyberAvatar";
 import UnoCard from "./UnoCard";
 import OpponentSeatsOverlay from "./OpponentSeatsOverlay";
+import VictoryCelebrationOverlay from "./VictoryCelebrationOverlay";
 
 const Arena3DTable = dynamic(() => import("./Arena3DTable"), { ssr: false });
 
@@ -24,7 +25,17 @@ export default function RoomClient({ roomCode }) {
   const [chatFilter, setChatFilter] = useState("all"); // 'all' | 'match' | 'chat'
   const [turnTimer, setTurnTimer] = useState(15);
   const [activeReactions, setActiveReactions] = useState({});
+  const [showVictoryPreview, setShowVictoryPreview] = useState(false);
   const socketRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("victory") === "true") {
+        setShowVictoryPreview(true);
+      }
+    }
+  }, []);
 
   // Load Room state via REST
   const loadRoom = useMemo(
@@ -335,6 +346,17 @@ export default function RoomClient({ roomCode }) {
               <button
                 type="button"
                 onClick={() => {
+                  setShowVictoryPreview(true);
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-yellow-300 hover:bg-yellow-400/10"
+              >
+                🏆 Victory Celebration
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   emit("room:leave");
                   window.location.href = "/dashboard";
                 }}
@@ -614,6 +636,23 @@ export default function RoomClient({ roomCode }) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Match Victory & Podium Celebration Overlay (Matches Mockup 3) */}
+      {(room.status === "finished" || showVictoryPreview) && (
+        <VictoryCelebrationOverlay
+          room={room}
+          user={user}
+          onPlayAgain={() => {
+            setShowVictoryPreview(false);
+            emit("game:start");
+          }}
+          onBackToLobby={() => {
+            emit("room:leave");
+            window.location.href = "/dashboard";
+          }}
+          onClose={() => setShowVictoryPreview(false)}
+        />
       )}
     </div>
   );
