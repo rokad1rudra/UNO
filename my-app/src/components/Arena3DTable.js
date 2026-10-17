@@ -327,10 +327,208 @@ function getTableFeltTexture(activeColorHex) {
   return texture;
 }
 
+// Procedural Canvas Texture for High-Contrast Stacked Physical Card Deck Sides
+function getDeckSidesTexture() {
+  if (typeof document === "undefined") return null;
+  if (textureCache.has("deck_sides_stacked_v3")) {
+    return textureCache.get("deck_sides_stacked_v3");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // 1. Base cardstock paper background
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, w, h);
+
+  // 2. Draw ~54 distinct, tangible cardstock layers (~19px per card)
+  const numCards = 54;
+  const cardH = h / numCards;
+
+  const cardTones = [
+    "#ffffff",
+    "#f8fafc",
+    "#f1f5f9",
+    "#ffffff",
+    "#e2e8f0",
+    "#fcfcfc",
+  ];
+
+  for (let i = 0; i < numCards; i++) {
+    const y = i * cardH;
+    const baseTone = cardTones[i % cardTones.length];
+
+    // Card paper gradient across its thickness (crisp top specular highlight, slight lower shade)
+    const cardGrad = ctx.createLinearGradient(0, y, 0, y + cardH);
+    cardGrad.addColorStop(0, "#ffffff");
+    cardGrad.addColorStop(0.18, "#ffffff");
+    cardGrad.addColorStop(0.35, baseTone);
+    cardGrad.addColorStop(0.75, baseTone);
+    cardGrad.addColorStop(1, "#cbd5e1");
+    ctx.fillStyle = cardGrad;
+    ctx.fillRect(0, y, w, cardH);
+
+    // Subtle paper grain noise
+    ctx.fillStyle = i % 2 === 0 ? "rgba(0, 0, 0, 0.025)" : "rgba(255, 255, 255, 0.035)";
+    ctx.fillRect(0, y, w, cardH);
+
+    // Crisp high-contrast shadow crease slit between cards
+    ctx.fillStyle = "rgba(15, 23, 42, 0.96)";
+    ctx.fillRect(0, y + cardH - 2.8, w, 2.8);
+
+    // Secondary softer contact shadow line above crease
+    ctx.fillStyle = "rgba(30, 41, 59, 0.45)";
+    ctx.fillRect(0, y + cardH - 4.2, w, 1.4);
+
+    // Top paper edge specular highlight
+    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.fillRect(0, y, w, 1.8);
+
+    // Occasional subtle hint of card face color bleed at the edge
+    if (i % 5 === 0) {
+      ctx.fillStyle = "rgba(15, 23, 42, 0.5)";
+      ctx.fillRect(0, y, w, 1.2);
+    }
+  }
+
+  // 3. Ambient Occlusion Gradient near table felt (bottom 16%)
+  const tableShadow = ctx.createLinearGradient(0, h * 0.84, 0, h);
+  tableShadow.addColorStop(0, "rgba(15, 23, 42, 0)");
+  tableShadow.addColorStop(1, "rgba(7, 10, 19, 0.8)");
+  ctx.fillStyle = tableShadow;
+  ctx.fillRect(0, h * 0.84, w, h * 0.16);
+
+  // 4. Subtle cyber rim glow (top & bottom ambient arena sheen)
+  const cyberSheen = ctx.createLinearGradient(0, 0, 0, h);
+  cyberSheen.addColorStop(0, "rgba(56, 189, 248, 0.14)");
+  cyberSheen.addColorStop(0.1, "transparent");
+  cyberSheen.addColorStop(0.9, "transparent");
+  cyberSheen.addColorStop(1, "rgba(56, 189, 248, 0.08)");
+  ctx.fillStyle = cyberSheen;
+  ctx.fillRect(0, 0, w, h);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 16;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  textureCache.set("deck_sides_stacked_v3", texture);
+  return texture;
+}
+
+// 3D Rounded Extrusion Geometry Generator matching authentic UNO card curvature
+function createRoundedDeckGeometry(width = 1.46, length = 2.22, radius = 0.12, depth = 0.22) {
+  const shape = new THREE.Shape();
+  const x = -width / 2;
+  const y = -length / 2;
+  shape.moveTo(x + radius, y);
+  shape.lineTo(x + width - radius, y);
+  shape.quadraticCurveTo(x + width, y, x + width, y + radius);
+  shape.lineTo(x + width, y + length - radius);
+  shape.quadraticCurveTo(x + width, y + length, x + width - radius, y + length);
+  shape.lineTo(x + radius, y + length);
+  shape.quadraticCurveTo(x, y + length, x, y + length - radius);
+  shape.lineTo(x, y + radius);
+  shape.quadraticCurveTo(x, y, x + radius, y);
+
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 16,
+  });
+
+  const pos = geom.attributes.position;
+  const uv = geom.attributes.uv;
+
+  // 1. Group 0 (top and bottom faces): normalize UVs to [0, 1]
+  if (geom.groups[0]) {
+    for (let i = 0; i < geom.groups[0].count; i++) {
+      uv.setXY(i, (pos.getX(i) + width / 2) / width, (pos.getY(i) + length / 2) / length);
+    }
+  }
+
+  // 2. Group 1 (side walls): continuous perimeter unwrapping along U, normalized Z along V
+  if (geom.groups[1]) {
+    const start = geom.groups[1].start;
+    const count = geom.groups[1].count;
+    let dist = 0;
+    for (let i = start; i < start + count; i += 6) {
+      const ax = pos.getX(i), ay = pos.getY(i);
+      const bx = pos.getX(i + 1), by = pos.getY(i + 1);
+      const segLen = Math.hypot(bx - ax, by - ay);
+      const u0 = dist;
+      const u1 = dist + segLen;
+      dist += segLen;
+
+      const z0 = THREE.MathUtils.clamp(pos.getZ(i) / depth, 0, 1);
+      const z1 = THREE.MathUtils.clamp(pos.getZ(i + 1) / depth, 0, 1);
+      const z2 = THREE.MathUtils.clamp(pos.getZ(i + 2) / depth, 0, 1);
+      const z3 = THREE.MathUtils.clamp(pos.getZ(i + 3) / depth, 0, 1);
+      const z4 = THREE.MathUtils.clamp(pos.getZ(i + 4) / depth, 0, 1);
+      const z5 = THREE.MathUtils.clamp(pos.getZ(i + 5) / depth, 0, 1);
+
+      uv.setXY(i, u0, z0);
+      uv.setXY(i + 1, u1, z1);
+      uv.setXY(i + 2, u0, z2);
+      uv.setXY(i + 3, u1, z3);
+      uv.setXY(i + 4, u1, z4);
+      uv.setXY(i + 5, u0, z5);
+    }
+
+    const totalPerimeter = dist > 0 ? dist : 1;
+    for (let i = start; i < start + count; i++) {
+      uv.setX(i, (uv.getX(i) / totalPerimeter) * 4);
+    }
+  }
+
+  geom.computeVertexNormals();
+  return geom;
+}
+
+let _sharedCardGeom = null;
+function getSharedCardGeometry() {
+  if (typeof window === "undefined") return null;
+  if (!_sharedCardGeom) {
+    _sharedCardGeom = createRoundedDeckGeometry(1.46, 2.22, 0.12, 0.008);
+  }
+  return _sharedCardGeom;
+}
+
+let _sharedDeckBaseGeom = null;
+function getSharedDeckBaseGeometry(depth = 0.22) {
+  if (typeof window === "undefined") return null;
+  if (!_sharedDeckBaseGeom) {
+    _sharedDeckBaseGeom = createRoundedDeckGeometry(1.46, 2.22, 0.12, depth);
+  }
+  return _sharedDeckBaseGeom;
+}
+
 // Single 3D Physical Card lying FLAT on the table with realistic contact shadow
 function Card3DFlat({ card, position, rotationY = 0, isBack = false, scale = 1 }) {
   const texture = useMemo(() => getUnoCardTexture(card, isBack), [card, isBack]);
   const shadowTexture = useMemo(() => getContactShadowTexture(), []);
+  const cardGeom = useMemo(() => getSharedCardGeometry(), []);
+
+  const materials = useMemo(() => {
+    return [
+      new THREE.MeshStandardMaterial({
+        map: texture,
+        roughness: 0.28,
+        metalness: 0.06,
+      }),
+      new THREE.MeshStandardMaterial({
+        color: "#f8fafc",
+        roughness: 0.35,
+      }),
+    ];
+  }, [texture]);
 
   return (
     <group position={position} rotation={[-Math.PI / 2, 0, rotationY]} scale={scale}>
@@ -342,23 +540,10 @@ function Card3DFlat({ card, position, rotationY = 0, isBack = false, scale = 1 }
         </mesh>
       )}
 
-      {/* Card Core White Edge Bevel */}
-      <mesh position={[0, 0, 0.005]}>
-        <boxGeometry args={[1.48, 2.24, 0.012]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.4} />
-      </mesh>
-
-      {/* Top Printed Face */}
-      <mesh position={[0, 0, 0.012]}>
-        <planeGeometry args={[1.46, 2.22]} />
-        {texture && (
-          <meshStandardMaterial
-            map={texture}
-            roughness={0.28}
-            metalness={0.06}
-          />
-        )}
-      </mesh>
+      {/* Card with Smooth Rounded Corners and White Cardstock Edge */}
+      {cardGeom && (
+        <mesh geometry={cardGeom} material={materials} />
+      )}
     </group>
   );
 }
@@ -577,7 +762,228 @@ function CardPillBadge3D({ text, count, isDeck, canDraw, onClick }) {
   );
 }
 
-// Center 3D Table Cards: Discard Pile (Fanned Flat Stack) + 3D Draw Deck
+// Realistic 3D Stacked Draw Deck with Smooth Rounded Geometry, Procedural Paper Edges, and Interactive Top Card
+function RealisticDrawDeck3D({ deckCount, canDraw, onDraw, activeColorHex }) {
+  const [hoverDeck, setHoverDeck] = useState(false);
+  const topCardRef = useRef();
+  const topShadowRef = useRef();
+
+  const deckTexture = useMemo(() => getUnoCardTexture(null, true), []);
+  const deckSidesTexture = useMemo(() => getDeckSidesTexture(), []);
+  const shadowTexture = useMemo(() => getContactShadowTexture(), []);
+
+  // Shared rounded geometries
+  const baseDepth = 0.22; // ~75 cards thickness
+  const deckBaseGeom = useMemo(() => getSharedDeckBaseGeometry(baseDepth), [baseDepth]);
+  const singleCardGeom = useMemo(() => getSharedCardGeometry(), []);
+
+  // Materials for base deck block (top face: card back, sides: stacked paper cardstock edges)
+  const baseMaterials = useMemo(() => {
+    return [
+      new THREE.MeshStandardMaterial({
+        map: deckTexture,
+        roughness: 0.3,
+        metalness: 0.05,
+      }),
+      new THREE.MeshStandardMaterial({
+        map: deckSidesTexture,
+        roughness: 0.65,
+        metalness: 0.04,
+      }),
+    ];
+  }, [deckTexture, deckSidesTexture]);
+
+  // Materials for intermediate cards (card back + white cardstock edge)
+  const intermediateMaterials = useMemo(() => {
+    return [
+      new THREE.MeshStandardMaterial({
+        map: deckTexture,
+        roughness: 0.28,
+        metalness: 0.05,
+      }),
+      new THREE.MeshStandardMaterial({
+        color: "#f8fafc",
+        roughness: 0.4,
+      }),
+    ];
+  }, [deckTexture]);
+
+  // Materials for the top interactive card (supports hover glow when canDraw)
+  const topCardMaterials = useMemo(() => {
+    return [
+      new THREE.MeshStandardMaterial({
+        map: deckTexture,
+        roughness: 0.25,
+        metalness: 0.06,
+        emissive: canDraw ? (hoverDeck ? "#0284c7" : "#0369a1") : "#000000",
+        emissiveIntensity: canDraw ? (hoverDeck ? 0.45 : 0.15) : 0,
+      }),
+      new THREE.MeshStandardMaterial({
+        color: "#f8fafc",
+        roughness: 0.35,
+        emissive: canDraw ? (hoverDeck ? "#38bdf8" : "#0284c7") : "#000000",
+        emissiveIntensity: canDraw ? (hoverDeck ? 0.6 : 0.2) : 0,
+      }),
+    ];
+  }, [deckTexture, canDraw, hoverDeck]);
+
+  // Dynamic lifting and hover animation for top card
+  useFrame((state, delta) => {
+    if (topCardRef.current) {
+      const isHovered = hoverDeck && canDraw;
+      // When hovered to draw: top card smoothly floats up and tilts towards player
+      const targetY = isHovered ? 0.35 : 0.258;
+      const targetRotX = isHovered ? -Math.PI / 2 - 0.06 : -Math.PI / 2;
+      const targetRotZ = isHovered ? 0.06 : 0.038;
+
+      topCardRef.current.position.y = THREE.MathUtils.damp(
+        topCardRef.current.position.y,
+        targetY,
+        12,
+        delta
+      );
+      topCardRef.current.rotation.x = THREE.MathUtils.damp(
+        topCardRef.current.rotation.x,
+        targetRotX,
+        12,
+        delta
+      );
+      topCardRef.current.rotation.z = THREE.MathUtils.damp(
+        topCardRef.current.rotation.z,
+        targetRotZ,
+        12,
+        delta
+      );
+    }
+
+    if (topShadowRef.current) {
+      const isHovered = hoverDeck && canDraw;
+      const targetOpacity = isHovered ? 0.55 : 0.0;
+      const targetScale = isHovered ? 1.05 : 0.95;
+      topShadowRef.current.material.opacity = THREE.MathUtils.damp(
+        topShadowRef.current.material.opacity,
+        targetOpacity,
+        12,
+        delta
+      );
+      topShadowRef.current.scale.setScalar(
+        THREE.MathUtils.damp(topShadowRef.current.scale.x, targetScale, 12, delta)
+      );
+    }
+  });
+
+  return (
+    <group position={[1.25, 0, 0]}>
+      {/* 1. Large Soft Contact Shadow beneath entire deck on the felt */}
+      {shadowTexture && (
+        <mesh position={[0.06, 0.005, -0.06]} rotation={[-Math.PI / 2, 0, 0.04]}>
+          <planeGeometry args={[1.75, 2.55]} />
+          <meshBasicMaterial map={shadowTexture} transparent opacity={0.7} />
+        </mesh>
+      )}
+
+      {/* 2. Main Stacked Deck Base Mesh with Rounded Corners and ~86 Paper Edges */}
+      {deckBaseGeom && (
+        <mesh
+          geometry={deckBaseGeom}
+          material={baseMaterials}
+          position={[0, 0, 0]}
+          rotation={[-Math.PI / 2, 0, 0.04]}
+          onPointerOver={() => canDraw && setHoverDeck(true)}
+          onPointerOut={() => setHoverDeck(false)}
+          onClick={canDraw ? onDraw : undefined}
+          cursor={canDraw ? "pointer" : "default"}
+        />
+      )}
+
+      {/* 3. Intermediate Physical Cards Stacked on Top with Realistic Micro-Offsets */}
+      {singleCardGeom && (
+        <>
+          {/* Card Layer -4 */}
+          <mesh
+            geometry={singleCardGeom}
+            material={intermediateMaterials}
+            position={[0.012, 0.222, -0.008]}
+            rotation={[-Math.PI / 2, 0, 0.022]}
+          />
+
+          {/* Card Layer -3 */}
+          <mesh
+            geometry={singleCardGeom}
+            material={intermediateMaterials}
+            position={[-0.010, 0.231, 0.010]}
+            rotation={[-Math.PI / 2, 0, -0.018]}
+          />
+
+          {/* Card Layer -2 */}
+          <mesh
+            geometry={singleCardGeom}
+            material={intermediateMaterials}
+            position={[0.008, 0.240, -0.006]}
+            rotation={[-Math.PI / 2, 0, 0.046]}
+          />
+
+          {/* Card Layer -1 */}
+          <mesh
+            geometry={singleCardGeom}
+            material={intermediateMaterials}
+            position={[-0.006, 0.249, 0.005]}
+            rotation={[-Math.PI / 2, 0, 0.012]}
+          />
+        </>
+      )}
+
+      {/* 4. Contact Shadow between Top Card and Deck (visible when top card lifts) */}
+      {shadowTexture && (
+        <mesh
+          ref={topShadowRef}
+          position={[0.02, 0.257, -0.02]}
+          rotation={[-Math.PI / 2, 0, 0.038]}
+        >
+          <planeGeometry args={[1.5, 2.26]} />
+          <meshBasicMaterial map={shadowTexture} transparent opacity={0.0} />
+        </mesh>
+      )}
+
+      {/* 5. Top Interactive Card (Lifts smoothly on hover, triggers onDraw on click) */}
+      {singleCardGeom && (
+        <mesh
+          ref={topCardRef}
+          geometry={singleCardGeom}
+          material={topCardMaterials}
+          position={[0, 0.258, 0]}
+          rotation={[-Math.PI / 2, 0, 0.038]}
+          onPointerOver={() => canDraw && setHoverDeck(true)}
+          onPointerOut={() => setHoverDeck(false)}
+          onClick={canDraw ? onDraw : undefined}
+          cursor={canDraw ? "pointer" : "default"}
+        />
+      )}
+
+      {/* 6. Subtle Cyber Deck Aura Glow Pool when playable */}
+      {canDraw && (
+        <pointLight
+          position={[0, 0.45, 0]}
+          color="#38bdf8"
+          intensity={hoverDeck ? 4.5 : 2.0}
+          distance={3.5}
+          decay={2}
+        />
+      )}
+
+      {/* 7. Pure 3D Deck Count Badge lying flat on felt */}
+      <CardPillBadge3D
+        text="Deck"
+        count={deckCount}
+        isDeck={true}
+        canDraw={canDraw}
+        onClick={canDraw ? onDraw : undefined}
+      />
+    </group>
+  );
+}
+
+// Center 3D Table Cards: Discard Pile (Fanned Flat Stack) + 3D Realistic Draw Deck
 function CenterTableCards3D({
   topCard,
   discardCount,
@@ -586,24 +992,7 @@ function CenterTableCards3D({
   canDraw,
   onDraw,
 }) {
-  const [hoverDeck, setHoverDeck] = useState(false);
-  const deckMeshRef = useRef();
-  const deckTexture = useMemo(() => getUnoCardTexture(null, true), []);
   const glowTexture = useMemo(() => getRadialGlowTexture(activeColorHex), [activeColorHex]);
-  const shadowTexture = useMemo(() => getContactShadowTexture(), []);
-
-  // Smooth floating hover physics on draw deck
-  useFrame((state, delta) => {
-    if (deckMeshRef.current) {
-      const targetY = hoverDeck && canDraw ? 0.22 : 0.15;
-      deckMeshRef.current.position.y = THREE.MathUtils.damp(
-        deckMeshRef.current.position.y,
-        targetY,
-        10,
-        delta
-      );
-    }
-  });
 
   return (
     <group position={[0, 0.15, 0]}>
@@ -660,54 +1049,13 @@ function CenterTableCards3D({
         <CardPillBadge3D text="Discard" count={discardCount} />
       </group>
 
-      {/* 2. 3D DRAW DECK (Thick 3D block resting on the table felt) */}
-      <group position={[1.25, 0, 0]}>
-        {/* Soft contact shadow beneath deck */}
-        {shadowTexture && (
-          <mesh position={[0.05, 0.005, -0.05]} rotation={[-Math.PI / 2, 0, 0.04]}>
-            <planeGeometry args={[1.7, 2.5]} />
-            <meshBasicMaterial map={shadowTexture} transparent opacity={0.65} />
-          </mesh>
-        )}
-
-        {/* Animated Deck Group for Hover Physics */}
-        <group ref={deckMeshRef} position={[0, 0.15, 0]}>
-          {/* Physical 3D Deck Box Mesh with Glowing Cyan Edges */}
-          <mesh
-            rotation={[0, 0.04, 0]}
-            onPointerOver={() => canDraw && setHoverDeck(true)}
-            onPointerOut={() => setHoverDeck(false)}
-            onClick={canDraw ? onDraw : undefined}
-            cursor={canDraw ? "pointer" : "default"}
-          >
-            <boxGeometry args={[1.48, 0.28, 2.24]} />
-            <meshStandardMaterial
-              color="#075985"
-              emissive="#0284c7"
-              emissiveIntensity={hoverDeck && canDraw ? 2.8 : 1.3}
-              roughness={0.25}
-              metalness={0.3}
-            />
-          </mesh>
-
-          {/* Top Face UNO Card Back on the Deck */}
-          <mesh position={[0, 0.145, 0]} rotation={[-Math.PI / 2, 0, 0.04]}>
-            <planeGeometry args={[1.46, 2.22]} />
-            {deckTexture && (
-              <meshStandardMaterial map={deckTexture} roughness={0.3} />
-            )}
-          </mesh>
-        </group>
-
-        {/* Pure 3D Deck Count Badge lying flat on felt */}
-        <CardPillBadge3D
-          text="Deck"
-          count={deckCount}
-          isDeck={true}
-          canDraw={canDraw}
-          onClick={canDraw ? onDraw : undefined}
-        />
-      </group>
+      {/* 2. 3D DRAW DECK (Realistic Physical Multi-Card Stack with Paper Edges) */}
+      <RealisticDrawDeck3D
+        deckCount={deckCount}
+        canDraw={canDraw}
+        onDraw={onDraw}
+        activeColorHex={activeColorHex}
+      />
     </group>
   );
 }
