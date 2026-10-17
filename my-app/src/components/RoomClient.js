@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { io } from "socket.io-client";
 import CyberAvatar from "./CyberAvatar";
 import UnoCard from "./UnoCard";
+
+const Arena3DTable = dynamic(() => import("./Arena3DTable"), { ssr: false });
 
 const emojis = ["🔥", "😂", "😮", "💀", "🎯", "❤️"];
 
@@ -414,145 +417,24 @@ export default function RoomClient({ roomCode }) {
 
       {/* Main Arena Stadium Layout (Matches Mockup 1) */}
       <main className="relative mx-auto mt-2 max-w-7xl px-2 sm:px-4">
-        {/* Curved Perspective Felt Table Canvas */}
-        <div className={`relative min-h-[580px] sm:min-h-[660px] w-full cyber-arena-table ${activeColorTrackClass} p-4 sm:p-8 flex flex-col justify-between overflow-visible`}>
-          {/* Inner Table Concentric Oval Track Accent */}
-          <div className="pointer-events-none absolute inset-6 sm:inset-10 rounded-[120px] border border-white/5 shadow-inner" />
-
-          {/* Opponents Seating Arc (Top & Sides) */}
-          <div className="relative z-20 flex flex-wrap items-center justify-around gap-4 pt-2">
-            {opponents.length > 0 ? (
-              opponents.map((player, idx) => {
-                const isCurrentTurn = player.isTurn;
-                const seatInfo = seatPositions[idx % seatPositions.length];
-                const reaction = activeReactions[player.username];
-
-                return (
-                  <div key={player.id} className="relative flex flex-col items-center">
-                    {/* Floating Speech Reaction Bubble (Matches Mockup 1) */}
-                    {reaction && Date.now() - reaction.timestamp < 4500 && (
-                      <div className="speech-bubble absolute -top-10 z-30 px-3 py-1 text-xs font-black text-white animate-bounce">
-                        {reaction.emoji}
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      {/* Active Turn Indicator Ring (Mockup 1) */}
-                      {isCurrentTurn && (
-                        <div className={`flex flex-col items-center justify-center rounded-full border-2 p-1.5 ${seatInfo.turnClass} bg-black/60 shadow-lg`}>
-                          <span className="text-[7px] font-black uppercase tracking-tight text-zinc-300">CURRENT</span>
-                          <span className="text-[8px] font-black uppercase text-yellow-300">TURN</span>
-                        </div>
-                      )}
-
-                      {/* Hexagonal Cyber Avatar Pod (Mockup 1) */}
-                      <div
-                        className={`relative rounded-2xl p-1 transition-transform ${
-                          isCurrentTurn ? "scale-110" : ""
-                        }`}
-                        style={{
-                          background: `linear-gradient(135deg, ${seatInfo.color} 0%, rgba(15,23,42,0.8) 100%)`,
-                          boxShadow: isCurrentTurn ? `0 0 25px ${seatInfo.color}` : "none",
-                        }}
-                      >
-                        <CyberAvatar
-                          name={player.username}
-                          avatarColor={player.avatarColor || seatInfo.color}
-                          index={idx}
-                          size="md"
-                        />
-                        {/* Online status indicator */}
-                        <span
-                          className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-zinc-950 ${
-                            player.connected ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-zinc-500"
-                          }`}
-                        />
-                      </div>
-
-                      {/* Countdown Timer Dial (Mockup 1) */}
-                      {isCurrentTurn && (
-                        <div className="flex flex-col items-center justify-center rounded-full border-2 border-emerald-400 bg-black/75 p-1.5 shadow-[0_0_15px_rgba(52,211,153,0.7)]">
-                          <span className="text-[7px] font-black uppercase text-zinc-400">TIME LEFT</span>
-                          <span className="text-[10px] font-black text-emerald-300">{turnTimer}s</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Cyber Pod Banner: Name + Cards Badge */}
-                    <div className="mt-2 flex items-center gap-1.5 rounded-full border border-white/10 bg-[#090d18]/90 px-3 py-0.5 text-center shadow-lg">
-                      <span className="max-w-20 truncate text-xs font-black text-white">{player.username}</span>
-                      <span className="rounded-full bg-yellow-400/20 px-1.5 text-[10px] font-black text-yellow-300 border border-yellow-400/30">
-                        {player.cardCount}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="rounded-2xl border border-dashed border-white/20 bg-white/[0.03] px-6 py-4 text-center">
-                <p className="text-sm font-bold text-zinc-300">Waiting for opponents to take seats...</p>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Share table room code <span className="font-mono text-yellow-300 font-black">{room.roomCode}</span>
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Center Table: Fanned Discard Pile + 3D Draw Deck (Mockup 1) */}
-          <div className="relative z-20 my-auto flex items-center justify-center gap-8 sm:gap-14 py-4">
-            {/* Discard Pile with Underlying 3D Fanned Cards Stack */}
-            <div className="relative flex flex-col items-center">
-              <div className="relative flex items-center justify-center">
-                {/* 3 Underlying Fanned Cards (Creates the 3D played stack in Mockup 1) */}
-                <div className="pointer-events-none absolute -rotate-[22deg] -translate-x-3 translate-y-1 opacity-70">
-                  <UnoCard card={{ color: "red", value: "8" }} small />
-                </div>
-                <div className="pointer-events-none absolute -rotate-[10deg] -translate-x-1.5 opacity-80">
-                  <UnoCard card={{ color: "yellow", value: "reverse" }} small />
-                </div>
-                <div className="pointer-events-none absolute rotate-[14deg] translate-x-3 translate-y-1 opacity-70">
-                  <UnoCard card={{ color: "blue", value: "skip" }} small />
-                </div>
-
-                {/* Top Active Discard Card */}
-                <div
-                  className="relative z-10 transition-transform hover:scale-105"
-                  style={{
-                    filter: `drop-shadow(0 0 25px ${activeColorHex})`,
-                  }}
-                >
-                  {room.topCard ? (
-                    <UnoCard card={room.topCard} highlightColor={activeColorHex} />
-                  ) : (
-                    <div className="h-28 w-20 sm:h-36 sm:w-24 rounded-2xl border-2 border-dashed border-white/20 grid place-items-center text-xs text-zinc-400 font-bold">
-                      Empty
-                    </div>
-                  )}
-                </div>
-              </div>
-              <span className="mt-3 rounded-full border border-white/10 bg-black/80 px-3 py-0.5 text-xs font-black text-zinc-300 shadow">
-                Discard: <span className="text-white">{room.discardCount}</span>
-              </span>
-            </div>
-
-            {/* 3D Interactive Draw Deck (Mockup 1) */}
-            <button
-              type="button"
-              onClick={() => emit("game:draw")}
-              disabled={!me?.isTurn || room.status !== "playing"}
-              className="group relative flex flex-col items-center transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <div className="draw-deck-3d rounded-2xl">
-                <UnoCard back />
-              </div>
-              <span className="mt-3 rounded-full border border-sky-400/40 bg-black/80 px-3 py-0.5 text-xs font-black text-sky-300 shadow">
-                Deck: <span className="text-yellow-300">{room.deckCount}</span>
-              </span>
-            </button>
-          </div>
+        {/* Real 3D Round / Oval Digital Table in Three.js & React Three Fiber */}
+        <div className="relative w-full overflow-hidden rounded-3xl border border-white/10 bg-[#060a14] shadow-2xl">
+          <Arena3DTable
+            room={room}
+            user={user}
+            me={me}
+            opponents={opponents}
+            activePlayer={activePlayer}
+            activeColor={activeColor}
+            activeColorHex={activeColorHex}
+            turnTimer={turnTimer}
+            activeReactions={activeReactions}
+            onDrawCard={() => emit("game:draw")}
+            onPlayCard={play}
+          />
 
           {/* Bottom Area: Centered SAY UNO Button + Hand Arc (Matches Mockup 1) */}
-          <div className="relative z-30 mt-auto flex flex-col items-center">
+          <div className="relative z-30 -mt-24 sm:-mt-28 flex flex-col items-center pb-2 bg-gradient-to-t from-[#060911] via-[#060911]/90 to-transparent pt-6">
             {/* Glowing 3D "SAY UNO" Button directly above player's hand */}
             <div className="mb-3">
               <button
