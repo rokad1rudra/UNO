@@ -227,21 +227,24 @@ export default function RoomClient({ roomCode }) {
   if (!room) return null;
 
   return (
-    <div className="relative min-h-[calc(100vh-64px)] w-full overflow-hidden arena-stadium-canvas pb-8">
-      {/* 4 Directional Laser Perspective Tracks (from Mockup 1) */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {/* Red Laser Ray to Left */}
-        <div className="absolute left-0 top-1/2 h-0.5 w-1/3 -translate-y-1/2 bg-gradient-to-r from-red-500/60 via-red-500/20 to-transparent blur-[1px]" />
-        {/* Cyan Laser Ray to Top-Left */}
-        <div className="absolute left-1/4 top-0 h-1/2 w-0.5 -rotate-45 bg-gradient-to-b from-sky-400/60 via-sky-400/20 to-transparent blur-[1px]" />
-        {/* Green Laser Ray to Top-Right */}
-        <div className="absolute right-1/4 top-0 h-1/2 w-0.5 rotate-45 bg-gradient-to-b from-emerald-500/60 via-emerald-500/20 to-transparent blur-[1px]" />
-        {/* Yellow Laser Ray to Right */}
-        <div className="absolute right-0 top-1/2 h-0.5 w-1/3 -translate-y-1/2 bg-gradient-to-l from-amber-400/60 via-amber-400/20 to-transparent blur-[1px]" />
-      </div>
+    <div className="relative flex-1 w-full h-[calc(100vh-56px)] max-h-[calc(100vh-56px)] overflow-hidden arena-stadium-canvas flex flex-col justify-between select-none">
+      {/* Real 3D Arena Table & Stadium Background (Three.js & React Three Fiber) */}
+      <Arena3DTable
+        room={room}
+        user={user}
+        me={me}
+        opponents={opponents}
+        activePlayer={activePlayer}
+        activeColor={activeColor}
+        activeColorHex={activeColorHex}
+        turnTimer={turnTimer}
+        activeReactions={activeReactions}
+        onDrawCard={() => emit("game:draw")}
+        onPlayCard={play}
+      />
 
       {/* Top Arena HUD Bar (Matches Mockup 1) */}
-      <header className="relative z-30 mx-auto flex max-w-7xl items-center justify-between px-3 py-3 sm:px-6">
+      <header className="relative z-20 flex items-center justify-between px-3 py-2 sm:px-6 w-full">
         {/* Active Color Capsule */}
         <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0d1424]/85 px-4 py-2 shadow-xl backdrop-blur-md">
           <span
@@ -337,178 +340,86 @@ export default function RoomClient({ roomCode }) {
 
       {/* Floating Notifications / Toasts */}
       {toast && (
-        <div className="fixed top-20 left-1/2 z-50 -translate-x-1/2 rounded-full border border-yellow-400/50 bg-[#0d1424]/95 px-6 py-2 text-xs font-black uppercase tracking-wider text-yellow-300 shadow-[0_0_30px_rgba(250,204,21,0.4)] backdrop-blur-xl animate-bounce">
+        <div className="fixed top-16 left-1/2 z-50 -translate-x-1/2 rounded-full border border-yellow-400/50 bg-[#0d1424]/95 px-6 py-2 text-xs font-black uppercase tracking-wider text-yellow-300 shadow-[0_0_30px_rgba(250,204,21,0.4)] backdrop-blur-xl animate-bounce">
           ⚡ {toast}
         </div>
       )}
 
-      {/* Victory Celebration Screen (Matches Mockup 3) */}
-      {room.status === "finished" && (
-        <section className="relative z-40 mx-auto my-4 max-w-3xl rounded-3xl border border-yellow-400/40 bg-gradient-to-b from-yellow-500/15 via-[#0d121c]/95 to-[#07090e]/98 p-6 shadow-2xl backdrop-blur-2xl">
-          <div className="text-center">
-            <span className="inline-block text-4xl mb-1">👑</span>
-            <p className="text-xs font-black uppercase tracking-widest text-yellow-300">MATCH COMPLETE</p>
-            <h2 className="mt-1 text-3xl font-black text-white sm:text-4xl">
-              {room.winner?.username} WINS!
-            </h2>
-          </div>
-
-          {/* 3D Champion Podium */}
-          <div className="mt-6 flex items-end justify-center gap-3 sm:gap-6">
-            {room.results?.[1] && (
-              <div className="flex flex-col items-center">
-                <CyberAvatar name={room.results[1].username} size="sm" index={1} />
-                <p className="mt-1.5 text-xs font-bold text-white max-w-20 truncate">{room.results[1].username}</p>
-                <div className="mt-2 flex h-20 w-20 sm:w-24 flex-col items-center justify-center rounded-t-xl border border-slate-400/40 bg-gradient-to-t from-slate-900 to-slate-800 shadow-xl">
-                  <span className="text-base font-black text-slate-300">2nd</span>
-                </div>
-              </div>
-            )}
-
-            {room.results?.[0] && (
-              <div className="flex flex-col items-center">
-                <div className="rounded-2xl ring-4 ring-yellow-400 shadow-[0_0_25px_rgba(250,204,21,0.6)]">
-                  <CyberAvatar name={room.results[0].username} size="md" index={0} />
-                </div>
-                <p className="mt-2 text-sm font-black text-yellow-300 max-w-24 truncate">{room.results[0].username}</p>
-                <div className="mt-2 flex h-28 w-24 sm:w-28 flex-col items-center justify-center rounded-t-xl border border-yellow-400/60 bg-gradient-to-t from-amber-950 to-amber-700 shadow-2xl shadow-yellow-400/30">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-yellow-300">CHAMPION</span>
-                  <span className="text-xl font-black text-white">1st 🏆</span>
-                </div>
-              </div>
-            )}
-
-            {room.results?.[2] && (
-              <div className="flex flex-col items-center">
-                <CyberAvatar name={room.results[2].username} size="sm" index={2} />
-                <p className="mt-1.5 text-xs font-bold text-white max-w-20 truncate">{room.results[2].username}</p>
-                <div className="mt-2 flex h-16 w-20 sm:w-24 flex-col items-center justify-center rounded-t-xl border border-amber-700/40 bg-gradient-to-t from-zinc-900 to-amber-950 shadow-xl">
-                  <span className="text-base font-black text-amber-500">3rd</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 mx-auto grid max-w-md grid-cols-3 gap-2.5">
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-2.5 text-center">
-              <p className="text-[9px] font-black uppercase text-emerald-400">XP EARNED</p>
-              <p className="text-base font-black text-white">+120 XP</p>
-            </div>
-            <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-2.5 text-center">
-              <p className="text-[9px] font-black uppercase text-yellow-400">COINS</p>
-              <p className="text-base font-black text-white">+75 🪙</p>
-            </div>
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-2.5 text-center">
-              <p className="text-[9px] font-black uppercase text-amber-400">STREAK</p>
-              <p className="text-base font-black text-white">🔥 Active</p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex justify-center gap-3">
-            <button
-              onClick={() => (window.location.href = "/dashboard")}
-              className="rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 px-6 py-2.5 text-sm font-black text-zinc-950 shadow-xl glow-button"
-            >
-              Back to Lobby
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* Main Arena Stadium Layout (Matches Mockup 1) */}
-      <main className="relative mx-auto mt-2 max-w-7xl px-2 sm:px-4">
-        {/* Real 3D Round / Oval Digital Table in Three.js & React Three Fiber */}
-        <div className="relative w-full overflow-hidden rounded-3xl border border-white/10 bg-[#060a14] shadow-2xl">
-          <Arena3DTable
-            room={room}
-            user={user}
-            me={me}
-            opponents={opponents}
-            activePlayer={activePlayer}
-            activeColor={activeColor}
-            activeColorHex={activeColorHex}
-            turnTimer={turnTimer}
-            activeReactions={activeReactions}
-            onDrawCard={() => emit("game:draw")}
-            onPlayCard={play}
-          />
-
-          {/* Bottom Area: Centered SAY UNO Button + Hand Arc (Matches Mockup 1) */}
-          <div className="relative z-30 -mt-24 sm:-mt-28 flex flex-col items-center pb-2 bg-gradient-to-t from-[#060911] via-[#060911]/90 to-transparent pt-6">
-            {/* Glowing 3D "SAY UNO" Button directly above player's hand */}
-            <div className="mb-3">
-              <button
-                type="button"
-                onClick={() => emit("game:uno")}
-                disabled={room.status !== "playing" || me?.finished}
-                className="say-uno-gloss-btn rounded-full px-10 py-3 text-lg font-black tracking-widest text-white uppercase shadow-2xl transition-all hover:scale-105 active:scale-95 disabled:opacity-40"
-              >
-                SAY UNO
-              </button>
-            </div>
-
-            {/* Hand Status Bar */}
-            <div className="mb-2 flex items-center justify-between w-full max-w-2xl px-4 text-xs font-bold">
-              <div className="flex items-center gap-2">
-                <span className={`size-2.5 rounded-full ${me?.isTurn ? "bg-emerald-400 animate-ping" : "bg-yellow-400"}`} />
-                <span className={me?.isTurn ? "text-emerald-300 font-black text-sm drop-shadow" : "text-yellow-300/90 font-bold"}>
-                  {room.status === "finished"
-                    ? "Game finished"
-                    : me?.isTurn
-                    ? "⚡ YOUR TURN! Click a playable card or draw."
-                    : activePlayer
-                    ? `${activePlayer.username}'s turn...`
-                    : "Waiting to start..."}
-                </span>
-              </div>
-              <span className="text-zinc-300 font-mono">
-                Hand: <strong className="text-yellow-300">{me?.hand?.length || 0}</strong> cards
-              </span>
-            </div>
-
-            {/* Realistic Fan-Spread Hand Arc (Matches Mockup 1) */}
-            <div className="relative flex items-end justify-center w-full overflow-x-auto pb-4 pt-6 px-4">
-              {(me?.hand || []).map((card, idx) => {
-                const total = me?.hand?.length || 1;
-                const mid = (total - 1) / 2;
-                // Calculate realistic handheld fanning angle & vertical arc
-                const tilt = Math.max(-16, Math.min(16, (idx - mid) * 4));
-                const translateY = Math.abs(idx - mid) * 2.5;
-
-                // Check if card is currently playable
-                const isPlayable =
-                  me?.isTurn &&
-                  room.status === "playing" &&
-                  (card.color === "wild" ||
-                    card.color === room.activeColor ||
-                    card.value === room.topCard?.value);
-
-                return (
-                  <div
-                    key={card.id}
-                    style={{
-                      transform: `rotate(${tilt}deg) translateY(${translateY}px)`,
-                    }}
-                    className={`relative transition-all duration-200 ${idx !== 0 ? "-ml-5 sm:-ml-7" : "ml-0"}`}
-                  >
-                    <UnoCard
-                      card={card}
-                      playable={isPlayable}
-                      disabled={!me?.isTurn || room.status !== "playing" || me?.finished}
-                      onClick={() => play(card)}
-                    />
-                  </div>
-                );
-              })}
-
-              {!me?.hand?.length && (
-                <div className="py-8 text-center text-xs font-bold text-zinc-500">
-                  {room.status === "waiting" ? "Cards will be dealt when match starts!" : "No cards in hand."}
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Bottom Area: Centered SAY UNO Button + Hand Arc (Matches Mockup 1) */}
+      <div className="relative z-20 flex flex-col items-center pb-2 px-2 w-full max-w-4xl mx-auto">
+        {/* Glowing 3D "SAY UNO" Button directly above player's hand */}
+        <div className="mb-2">
+          <button
+            type="button"
+            onClick={() => emit("game:uno")}
+            disabled={room.status !== "playing" || me?.finished}
+            className="say-uno-gloss-btn rounded-full px-10 py-2.5 text-base font-black tracking-widest text-white uppercase shadow-2xl transition-all hover:scale-105 active:scale-95 disabled:opacity-40"
+          >
+            SAY UNO
+          </button>
         </div>
+
+        {/* Hand Status Bar */}
+        <div className="mb-1 flex items-center justify-between w-full max-w-xl px-4 text-xs font-bold">
+          <div className="flex items-center gap-2">
+            <span className={`size-2.5 rounded-full ${me?.isTurn ? "bg-emerald-400 animate-ping" : "bg-yellow-400"}`} />
+            <span className={me?.isTurn ? "text-emerald-300 font-black text-sm drop-shadow" : "text-yellow-300/90 font-bold"}>
+              {room.status === "finished"
+                ? "Game finished"
+                : me?.isTurn
+                ? "⚡ YOUR TURN! Click a playable card or draw."
+                : activePlayer
+                ? `${activePlayer.username}'s turn...`
+                : "Waiting to start..."}
+            </span>
+          </div>
+          <span className="text-zinc-300 font-mono">
+            Hand: <strong className="text-yellow-300">{me?.hand?.length || 0}</strong> cards
+          </span>
+        </div>
+
+        {/* Realistic Fan-Spread Hand Arc (Matches Mockup 1) */}
+        <div className="relative flex items-end justify-center w-full overflow-x-auto pb-1 pt-2 px-2">
+          {(me?.hand || []).map((card, idx) => {
+            const total = me?.hand?.length || 1;
+            const mid = (total - 1) / 2;
+            // Calculate realistic handheld fanning angle & vertical arc
+            const tilt = Math.max(-14, Math.min(14, (idx - mid) * 3.5));
+            const translateY = Math.abs(idx - mid) * 2;
+
+            // Check if card is currently playable
+            const isPlayable =
+              me?.isTurn &&
+              room.status === "playing" &&
+              (card.color === "wild" ||
+                card.color === room.activeColor ||
+                card.value === room.topCard?.value);
+
+            return (
+              <div
+                key={card.id}
+                style={{
+                  transform: `rotate(${tilt}deg) translateY(${translateY}px)`,
+                }}
+                className={`relative transition-all duration-200 ${idx !== 0 ? "-ml-5 sm:-ml-7" : "ml-0"}`}
+              >
+                <UnoCard
+                  card={card}
+                  playable={isPlayable}
+                  disabled={!me?.isTurn || room.status !== "playing" || me?.finished}
+                  onClick={() => play(card)}
+                />
+              </div>
+            );
+          })}
+
+          {!me?.hand?.length && (
+            <div className="py-4 text-center text-xs font-bold text-zinc-400 bg-black/40 rounded-xl px-4">
+              {room.status === "waiting" ? "Cards will be dealt when match starts!" : "No cards in hand."}
+            </div>
+          )}
+        </div>
+      </div>
 
         {/* Bottom Left Quick Controls (Mockup 1) */}
         <div className="absolute bottom-4 left-6 z-30 hidden sm:flex items-center gap-2">
@@ -645,7 +556,6 @@ export default function RoomClient({ roomCode }) {
             <span className="size-2 rounded-full bg-emerald-400 animate-ping" />
           </button>
         )}
-      </main>
 
       {/* Wild Color Wheel Modal (Matches Mockup 1) */}
       {wildCard && (

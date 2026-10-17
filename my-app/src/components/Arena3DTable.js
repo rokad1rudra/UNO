@@ -1,58 +1,446 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
+import * as THREE from "three";
 import CyberAvatar from "./CyberAvatar";
-import UnoCard from "./UnoCard";
 
-// 3D Table Mesh with Clean Unified Group Scale for Seamless Oval Alignment
-function TableMesh({ activeColorHex }) {
+// Cache generated textures
+const textureCache = new Map();
+
+// Generate authentic UNO card texture
+function getUnoCardTexture(card, isBack = false) {
+  if (typeof document === "undefined") return null;
+
+  const color = card?.color === "wild" && card?.chosenColor ? card.chosenColor : card?.color || "wild";
+  const value = String(card?.value || "?");
+  const cacheKey = isBack ? "back" : `${color}_${value}`;
+
+  if (textureCache.has(cacheKey)) {
+    return textureCache.get(cacheKey);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 768;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+
+  if (isBack) {
+    // Matte dark card back with silver-white border
+    ctx.fillStyle = "#070b14";
+    ctx.beginPath();
+    ctx.roundRect(8, 8, w - 16, h - 16, 36);
+    ctx.fill();
+
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.roundRect(14, 14, w - 28, h - 28, 30);
+    ctx.stroke();
+
+    // Center Red-Orange Oval
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(-0.42);
+    const grad = ctx.createLinearGradient(-190, 0, 190, 0);
+    grad.addColorStop(0, "#dc2626");
+    grad.addColorStop(0.5, "#ef4444");
+    grad.addColorStop(1, "#f59e0b");
+    ctx.fillStyle = grad;
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 195, 125, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Yellow UNO Bold Text with 3D shadow
+    ctx.fillStyle = "#facc15";
+    ctx.font = 'italic 900 130px "Arial Black", Impact, sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,0.95)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 7;
+    ctx.fillText("UNO", 0, 8);
+    ctx.restore();
+  } else {
+    const colorPalettes = {
+      red: { base: "#dc2626", text: "#dc2626", grad: ["#f43f5e", "#dc2626", "#991b1b"] },
+      yellow: { base: "#eab308", text: "#b45309", grad: ["#fde047", "#eab308", "#a16207"] },
+      green: { base: "#16a34a", text: "#15803d", grad: ["#34d399", "#16a34a", "#065f46"] },
+      blue: { base: "#2563eb", text: "#1d4ed8", grad: ["#38bdf8", "#2563eb", "#1e40af"] },
+      wild: { base: "#0f172a", text: "#9333ea", grad: ["#0f172a", "#1e293b", "#090d16"] },
+    };
+
+    const pal = colorPalettes[color] || colorPalettes.wild;
+
+    // Card Background
+    if (color === "wild" || card?.color === "wild") {
+      ctx.fillStyle = "#090d16";
+      ctx.beginPath();
+      ctx.roundRect(8, 8, w - 16, h - 16, 36);
+      ctx.fill();
+
+      // 4 quadrant colors
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(14, 14, w - 28, h - 28, 30);
+      ctx.clip();
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(0, 0, w / 2, h / 2);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fillRect(w / 2, 0, w / 2, h / 2);
+      ctx.fillStyle = "#eab308";
+      ctx.fillRect(0, h / 2, w / 2, h / 2);
+      ctx.fillStyle = "#16a34a";
+      ctx.fillRect(w / 2, h / 2, w / 2, h / 2);
+      ctx.restore();
+    } else {
+      const grad = ctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0, pal.grad[0]);
+      grad.addColorStop(0.5, pal.grad[1]);
+      grad.addColorStop(1, pal.grad[2]);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(8, 8, w - 16, h - 16, 36);
+      ctx.fill();
+    }
+
+    // Outer White Border
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.roundRect(14, 14, w - 28, h - 28, 30);
+    ctx.stroke();
+
+    // Center White Oval
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(-0.42);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 195, 130, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Center symbol or number
+    let display = value;
+    if (value === "skip") display = "⊘";
+    else if (value === "reverse") display = "⇄";
+    else if (value === "+2") display = "+2";
+    else if (value === "wild") display = "WILD";
+    else if (value === "+4") display = "+4";
+
+    ctx.fillStyle = pal.text;
+    ctx.font = `italic 900 ${display.length > 2 ? "110px" : "190px"} "Arial Black", Impact, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,0.2)";
+    ctx.shadowBlur = 4;
+    ctx.fillText(display, 0, 8);
+    ctx.restore();
+
+    // Corner Pips (top-left & bottom-right)
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `italic 900 62px "Arial Black", Impact, sans-serif`;
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
+    ctx.shadowBlur = 4;
+    ctx.textAlign = "center";
+
+    // Top-left
+    ctx.fillText(display === "WILD" ? "★" : display, 68, 88);
+
+    // Bottom-right inverted
+    ctx.save();
+    ctx.translate(w - 68, h - 88);
+    ctx.rotate(Math.PI);
+    ctx.fillText(display === "WILD" ? "★" : display, 0, 0);
+    ctx.restore();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  textureCache.set(cacheKey, texture);
+  return texture;
+}
+
+// Generate soft radial blur glow texture for light pools
+function getRadialGlowTexture(colorHex) {
+  if (typeof document === "undefined") return null;
+  const key = `glow_${colorHex}`;
+  if (textureCache.has(key)) return textureCache.get(key);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  const grad = ctx.createRadialGradient(128, 128, 10, 128, 128, 125);
+  grad.addColorStop(0, colorHex);
+  grad.addColorStop(0.35, colorHex);
+  grad.addColorStop(0.7, colorHex + "66");
+  grad.addColorStop(1, "transparent");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  textureCache.set(key, texture);
+  return texture;
+}
+
+// Soft contact drop shadow texture
+function getContactShadowTexture() {
+  if (typeof document === "undefined") return null;
+  if (textureCache.has("contact_shadow")) return textureCache.get("contact_shadow");
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 120);
+  grad.addColorStop(0, "rgba(0, 0, 0, 0.75)");
+  grad.addColorStop(0.5, "rgba(0, 0, 0, 0.45)");
+  grad.addColorStop(0.85, "rgba(0, 0, 0, 0.15)");
+  grad.addColorStop(1, "transparent");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  textureCache.set("contact_shadow", texture);
+  return texture;
+}
+
+// Procedural Canvas Texture for High-Tech Arena Table Felt
+function getTableFeltTexture(activeColorHex) {
+  if (typeof document === "undefined") return null;
+  const key = `felt_${activeColorHex}`;
+  if (textureCache.has(key)) return textureCache.get(key);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  const cx = 512;
+  const cy = 512;
+
+  // 1. Rich Velvet Carbon Felt Radial Gradient
+  const bgGrad = ctx.createRadialGradient(cx, cy, 40, cx, cy, 510);
+  bgGrad.addColorStop(0, "#12203d");
+  bgGrad.addColorStop(0.35, "#0b162c");
+  bgGrad.addColorStop(0.75, "#060d1b");
+  bgGrad.addColorStop(1, "#03060c");
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // 2. Subtle Cyber Tech Grid
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+  ctx.lineWidth = 1;
+  const step = 32;
+  for (let x = 0; x < 1024; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 1024);
+    ctx.stroke();
+  }
+  for (let y = 0; y < 1024; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(1024, y);
+    ctx.stroke();
+  }
+
+  // 3. Concentric Digital Arena Circuit Rings
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Outer dashed ring
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([12, 14]);
+  ctx.beginPath();
+  ctx.arc(0, 0, 485, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Secondary glowing ring in active color
+  ctx.strokeStyle = activeColorHex || "#22c55e";
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 4;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(0, 0, 440, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Radar degree tick marks
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 72; i++) {
+    const angle = (i * Math.PI) / 36;
+    const r1 = i % 6 === 0 ? 420 : 430;
+    const r2 = 438;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * r1, Math.sin(angle) * r1);
+    ctx.lineTo(Math.cos(angle) * r2, Math.sin(angle) * r2);
+    ctx.stroke();
+  }
+
+  // Inner pulsing circuit track
+  ctx.globalAlpha = 0.4;
+  ctx.strokeStyle = activeColorHex || "#22c55e";
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([16, 10]);
+  ctx.beginPath();
+  ctx.arc(0, 0, 330, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 4. Center Card Play Surface Placement Guides
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 0.65;
+  ctx.strokeStyle = activeColorHex || "#22c55e";
+  ctx.lineWidth = 2.5;
+  // Discard area outline
+  ctx.strokeRect(-185, -115, 145, 230);
+
+  // Deck area outline
+  ctx.strokeStyle = "#38bdf8";
+  ctx.strokeRect(40, -115, 145, 230);
+
+  // Subtle Watermark & Tech Crosshairs
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = "#ffffff";
+  ctx.font = '900 24px "Arial Black", Impact, sans-serif';
+  ctx.textAlign = "center";
+  ctx.fillText("UNO ARENA TABLE", 0, -150);
+  ctx.fillText("DIGITAL MATCH SURFACE", 0, 175);
+
+  ctx.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  textureCache.set(key, texture);
+  return texture;
+}
+
+// Single 3D Physical Card lying FLAT on the table with realistic contact shadow
+function Card3DFlat({ card, position, rotationY = 0, isBack = false, scale = 1 }) {
+  const texture = useMemo(() => getUnoCardTexture(card, isBack), [card, isBack]);
+  const shadowTexture = useMemo(() => getContactShadowTexture(), []);
+
+  return (
+    <group position={position} rotation={[-Math.PI / 2, 0, rotationY]} scale={scale}>
+      {/* Soft Contact Drop Shadow onto table felt */}
+      {shadowTexture && (
+        <mesh position={[0.04, -0.04, -0.005]}>
+          <planeGeometry args={[1.7, 2.45]} />
+          <meshBasicMaterial map={shadowTexture} transparent opacity={0.65} />
+        </mesh>
+      )}
+
+      {/* Card Core White Edge Bevel */}
+      <mesh position={[0, 0, 0.005]}>
+        <boxGeometry args={[1.48, 2.24, 0.012]} />
+        <meshStandardMaterial color="#f8fafc" roughness={0.4} />
+      </mesh>
+
+      {/* Top Printed Face */}
+      <mesh position={[0, 0, 0.012]}>
+        <planeGeometry args={[1.46, 2.22]} />
+        {texture && (
+          <meshStandardMaterial
+            map={texture}
+            roughness={0.28}
+            metalness={0.06}
+          />
+        )}
+      </mesh>
+    </group>
+  );
+}
+
+// 3D Round Arena Table with Bevel Rim & Glowing Neon Edge (Mockup 1)
+function Table3DMesh({ activeColorHex }) {
   const innerRingRef = useRef();
+  const feltTexture = useMemo(() => getTableFeltTexture(activeColorHex), [activeColorHex]);
 
   useFrame((state, delta) => {
     if (innerRingRef.current) {
-      innerRingRef.current.rotation.z += delta * 0.12;
+      innerRingRef.current.rotation.z += delta * 0.1;
     }
   });
 
   return (
     <group position={[0, -0.1, 0]}>
-      {/* Unified Oval Group - Perfectly scales cylinder and neon torus together */}
-      <group scale={[1.38, 1, 0.92]}>
-        {/* 1. Outer 3D Table Base & Dark Titanium Bevel */}
+      {/* Unified Oval Table Group */}
+      <group scale={[1.28, 1, 0.94]}>
+        {/* 1. Heavy Outer 3D Table Base & Dark Titanium Bevel Bumper */}
         <mesh position={[0, -0.22, 0]}>
-          <cylinderGeometry args={[5.55, 5.15, 0.65, 64]} />
+          <cylinderGeometry args={[5.52, 5.1, 0.65, 64]} />
           <meshStandardMaterial
             color="#070a13"
             roughness={0.2}
-            metalness={0.9}
+            metalness={0.92}
           />
         </mesh>
 
-        {/* 2. Primary Radiant Neon Rim Ring */}
-        <mesh position={[0, 0.16, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[5.46, 0.08, 24, 100]} />
+        {/* 2. Outer Padded Bumper Rim */}
+        <mesh position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[5.38, 0.18, 24, 100]} />
+          <meshStandardMaterial
+            color="#0c101a"
+            roughness={0.3}
+            metalness={0.8}
+          />
+        </mesh>
+
+        {/* 3. Primary Glowing Neon Rim Ring */}
+        <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[5.22, 0.065, 24, 100]} />
           <meshStandardMaterial
             color={activeColorHex}
             emissive={activeColorHex}
-            emissiveIntensity={3.4}
+            emissiveIntensity={3.8}
             roughness={0.05}
           />
         </mesh>
 
-        {/* 3. Deep Velvet Carbon Table Felt */}
-        <mesh position={[0, 0.14, 0]}>
-          <cylinderGeometry args={[5.38, 5.38, 0.06, 64]} />
-          <meshStandardMaterial
-            color="#0b1325"
-            roughness={0.88}
-            metalness={0.1}
+        {/* 4. Soft Radiant Outer Bloom Halo Ring */}
+        <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[5.24, 0.18, 16, 90]} />
+          <meshBasicMaterial
+            color={activeColorHex}
+            transparent
+            opacity={0.28}
           />
         </mesh>
 
-        {/* 4. Rotating Inner Neon Energy Circuit */}
-        <mesh ref={innerRingRef} position={[0, 0.18, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        {/* 5. High-Tech Circular Felt Surface with Procedural Texture */}
+        <mesh position={[0, 0.14, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[5.2, 64]} />
+          {feltTexture ? (
+            <meshStandardMaterial
+              map={feltTexture}
+              roughness={0.55}
+              metalness={0.08}
+            />
+          ) : (
+            <meshStandardMaterial
+              color="#0b162c"
+              roughness={0.7}
+              metalness={0.08}
+            />
+          )}
+        </mesh>
+
+        {/* 6. Rotating Inner Neon Energy Circuit */}
+        <mesh ref={innerRingRef} position={[0, 0.145, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <torusGeometry args={[4.2, 0.035, 16, 90]} />
           <meshStandardMaterial
             color={activeColorHex}
@@ -64,11 +452,11 @@ function TableMesh({ activeColorHex }) {
         </mesh>
       </group>
 
-      {/* 5. Center Active Color Ambient Light Pool */}
+      {/* 7. Center Table Ambient Glow Pool in active color */}
       <pointLight
         position={[0, 1.8, 0]}
         color={activeColorHex}
-        intensity={5.5}
+        intensity={6.5}
         distance={12}
         decay={2}
       />
@@ -76,42 +464,197 @@ function TableMesh({ activeColorHex }) {
   );
 }
 
-// 3D Stadium Floor Grid & 4 Laser Light Tracks (Mockup 1)
-function ArenaStadiumLasers() {
+// 3D Curved Laser Arcs & Stadium Arena Lights (Mockup 1)
+function StadiumEnvironmentLasers() {
+  const particlesRef = useRef();
+
+  // Floating Cyber Arena Dust Particles
+  const particlePositions = useMemo(() => {
+    const coords = new Float32Array(140 * 3);
+    for (let i = 0; i < 140; i++) {
+      coords[i * 3] = (Math.random() - 0.5) * 28;
+      coords[i * 3 + 1] = Math.random() * 8 - 1;
+      coords[i * 3 + 2] = (Math.random() - 0.5) * 24 - 4;
+    }
+    return coords;
+  }, []);
+
+  useFrame((state, delta) => {
+    if (particlesRef.current) {
+      const positions = particlesRef.current.geometry.attributes.position.array;
+      for (let i = 1; i < positions.length; i += 3) {
+        positions[i] += delta * 0.25;
+        if (positions[i] > 8) positions[i] = -1;
+      }
+      particlesRef.current.geometry.attributes.position.needsUpdate = true;
+    }
+  });
+
+  // 3D Curved Laser Tubes radiating across the arena to player seats (Mockup 1)
+  const redCurve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-1.2, 0.2, -0.4),
+        new THREE.Vector3(-4.0, 1.0, -1.2),
+        new THREE.Vector3(-8.5, 2.2, 0.5),
+        new THREE.Vector3(-16.0, 4.0, 3.0),
+      ]),
+    []
+  );
+
+  const blueCurve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-0.8, 0.2, -0.8),
+        new THREE.Vector3(-2.8, 1.2, -3.2),
+        new THREE.Vector3(-6.5, 2.8, -7.5),
+        new THREE.Vector3(-12.0, 5.0, -14.0),
+      ]),
+    []
+  );
+
+  const greenCurve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0.0, 0.2, -1.0),
+        new THREE.Vector3(0.0, 1.5, -4.5),
+        new THREE.Vector3(0.0, 3.2, -9.0),
+        new THREE.Vector3(0.0, 5.8, -16.0),
+      ]),
+    []
+  );
+
+  const yellowCurve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3([
+        new THREE.Vector3(1.2, 0.2, -0.4),
+        new THREE.Vector3(4.0, 1.0, -1.2),
+        new THREE.Vector3(8.5, 2.2, 0.5),
+        new THREE.Vector3(16.0, 4.0, 3.0),
+      ]),
+    []
+  );
+
   return (
-    <group position={[0, -2.2, 0]}>
+    <group position={[0, -0.2, 0]}>
       {/* 3D Cyber Floor Grid */}
-      <gridHelper args={[48, 48, "#1e293b", "#090d16"]} position={[0, -0.01, 0]} />
+      <gridHelper args={[54, 54, "#1e293b", "#060912"]} position={[0, -1.9, 0]} />
 
-      {/* Red Laser Ray to Left (Mira) */}
-      <mesh position={[-10, 0.05, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.05, 0.05, 14, 16]} />
-        <meshBasicMaterial color="#ef4444" transparent opacity={0.75} />
+      {/* Red Curved Laser to Mira (Left) */}
+      <mesh>
+        <tubeGeometry args={[redCurve, 32, 0.045, 8, false]} />
+        <meshBasicMaterial color="#ef4444" transparent opacity={0.8} />
       </mesh>
 
-      {/* Blue Laser Ray to Top-Left (Elara) */}
-      <mesh position={[-8, 0.05, -8]} rotation={[0, -Math.PI / 4, Math.PI / 2]}>
-        <cylinderGeometry args={[0.05, 0.05, 16, 16]} />
-        <meshBasicMaterial color="#38bdf8" transparent opacity={0.75} />
+      {/* Blue Curved Laser to Elara (Top-Left) */}
+      <mesh>
+        <tubeGeometry args={[blueCurve, 32, 0.045, 8, false]} />
+        <meshBasicMaterial color="#38bdf8" transparent opacity={0.8} />
       </mesh>
 
-      {/* Green Laser Ray to Top-Center (Kai) */}
-      <mesh position={[0, 0.05, -11]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, 14, 16]} />
-        <meshBasicMaterial color="#22c55e" transparent opacity={0.8} />
+      {/* Green Curved Laser to Kai (Top-Center) */}
+      <mesh>
+        <tubeGeometry args={[greenCurve, 32, 0.045, 8, false]} />
+        <meshBasicMaterial color="#22c55e" transparent opacity={0.85} />
       </mesh>
 
-      {/* Yellow Laser Ray to Right (Leo) */}
-      <mesh position={[10, 0.05, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.05, 0.05, 14, 16]} />
-        <meshBasicMaterial color="#facc15" transparent opacity={0.75} />
+      {/* Yellow Curved Laser to Leo (Right) */}
+      <mesh>
+        <tubeGeometry args={[yellowCurve, 32, 0.045, 8, false]} />
+        <meshBasicMaterial color="#facc15" transparent opacity={0.8} />
       </mesh>
+
+      {/* Floating Arena Dust Embers */}
+      <points ref={particlesRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            args={[particlePositions, 3]}
+          />
+        </bufferGeometry>
+        <pointsMaterial
+          size={0.08}
+          color="#38bdf8"
+          transparent
+          opacity={0.65}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
     </group>
   );
 }
 
-// 3D Center Cards on the Table Felt
-function CenterCards3D({
+// Generate high-contrast canvas texture for 3D table badges
+function getCardPillBadgeTexture(text, count, isDeck = false, canDraw = false) {
+  if (typeof document === "undefined") return null;
+  const key = `badge_${text}_${count}_${isDeck}_${canDraw}`;
+  if (textureCache.has(key)) return textureCache.get(key);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 384;
+  canvas.height = 112;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+
+  // Background pill
+  ctx.fillStyle = isDeck && canDraw ? "rgba(8, 47, 73, 0.95)" : "rgba(3, 7, 18, 0.92)";
+  ctx.beginPath();
+  ctx.roundRect(6, 6, w - 12, h - 12, 50);
+  ctx.fill();
+
+  // Border
+  ctx.strokeStyle = isDeck ? (canDraw ? "#38bdf8" : "rgba(56, 189, 248, 0.5)") : "rgba(255, 255, 255, 0.3)";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.roundRect(6, 6, w - 12, h - 12, 50);
+  ctx.stroke();
+
+  // Text
+  ctx.font = '900 38px "Arial Black", Impact, sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  if (isDeck) {
+    ctx.fillStyle = canDraw ? "#bae6fd" : "#7dd3fc";
+    ctx.fillText(`${text}: `, w / 2 - 35, h / 2);
+    ctx.fillStyle = "#facc15";
+    ctx.fillText(String(count), w / 2 + 55, h / 2);
+  } else {
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillText(`${text}: `, w / 2 - 30, h / 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(String(count), w / 2 + 55, h / 2);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  textureCache.set(key, texture);
+  return texture;
+}
+
+function CardPillBadge3D({ text, count, isDeck, canDraw, onClick }) {
+  const texture = useMemo(
+    () => getCardPillBadgeTexture(text, count, isDeck, canDraw),
+    [text, count, isDeck, canDraw]
+  );
+
+  return (
+    <mesh
+      position={[0, 0.02, 1.48]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      onClick={onClick}
+      cursor={onClick ? "pointer" : "default"}
+    >
+      <planeGeometry args={[1.55, 0.45]} />
+      {texture && <meshBasicMaterial map={texture} transparent />}
+    </mesh>
+  );
+}
+
+// Center 3D Table Cards: Discard Pile (Fanned Flat Stack) + 3D Draw Deck
+function CenterTableCards3D({
   topCard,
   discardCount,
   deckCount,
@@ -119,91 +662,172 @@ function CenterCards3D({
   canDraw,
   onDraw,
 }) {
+  const [hoverDeck, setHoverDeck] = useState(false);
+  const deckMeshRef = useRef();
+  const deckTexture = useMemo(() => getUnoCardTexture(null, true), []);
+  const glowTexture = useMemo(() => getRadialGlowTexture(activeColorHex), [activeColorHex]);
+  const shadowTexture = useMemo(() => getContactShadowTexture(), []);
+
+  // Smooth floating hover physics on draw deck
+  useFrame((state, delta) => {
+    if (deckMeshRef.current) {
+      const targetY = hoverDeck && canDraw ? 0.22 : 0.15;
+      deckMeshRef.current.position.y = THREE.MathUtils.damp(
+        deckMeshRef.current.position.y,
+        targetY,
+        10,
+        delta
+      );
+    }
+  });
+
   return (
-    <group position={[0, 0.35, 0]}>
-      {/* Discard Pile (Left of Center) */}
-      <group position={[-1.4, 0, 0]}>
-        <Html center distanceFactor={13}>
-          <div className="relative flex flex-col items-center select-none pointer-events-auto">
-            {/* 3 Underlying 3D Fanned Cards (Mockup 1) */}
-            <div className="relative flex items-center justify-center">
-              <div className="pointer-events-none absolute -rotate-[22deg] -translate-x-4 translate-y-1 opacity-70">
-                <UnoCard card={{ color: "red", value: "8" }} small />
-              </div>
-              <div className="pointer-events-none absolute -rotate-[10deg] -translate-x-2 opacity-80">
-                <UnoCard card={{ color: "yellow", value: "reverse" }} small />
-              </div>
-              <div className="pointer-events-none absolute rotate-[14deg] translate-x-4 translate-y-1 opacity-70">
-                <UnoCard card={{ color: "blue", value: "skip" }} small />
-              </div>
+    <group position={[0, 0.15, 0]}>
+      {/* 1. DISCARD PILE (Realistic Casual Fanned Stack resting FLAT on the felt) */}
+      <group position={[-1.25, 0, 0]}>
+        {/* Soft Circular Radial Neon Glow Pool on the Felt */}
+        {glowTexture && (
+          <mesh position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[3.4, 3.4]} />
+            <meshBasicMaterial map={glowTexture} transparent opacity={0.4} />
+          </mesh>
+        )}
 
-              {/* Active Top Card with radiant glowing halo */}
-              <div
-                className="relative z-10 transition-transform duration-200 hover:scale-105"
-                style={{
-                  filter: `drop-shadow(0 0 28px ${activeColorHex})`,
-                }}
-              >
-                {topCard ? (
-                  <UnoCard card={topCard} highlightColor={activeColorHex} />
-                ) : (
-                  <div className="h-28 w-20 sm:h-36 sm:w-24 rounded-2xl border-2 border-dashed border-white/20 grid place-items-center text-xs text-zinc-400 font-bold bg-black/60">
-                    Empty
-                  </div>
-                )}
-              </div>
-            </div>
+        {/* Underlying Fanned Card 1 (Red 8 tilted left -18°) */}
+        <Card3DFlat
+          card={{ color: "red", value: "8" }}
+          position={[-0.06, 0.012, 0.03]}
+          rotationY={-0.31}
+        />
 
-            <span className="mt-3 rounded-full border border-white/15 bg-black/90 px-3 py-0.5 text-xs font-black text-zinc-200 shadow-xl">
-              Discard: <strong className="text-white">{discardCount}</strong>
-            </span>
-          </div>
-        </Html>
+        {/* Underlying Fanned Card 2 (Yellow Reverse tilted left -7°) */}
+        <Card3DFlat
+          card={{ color: "yellow", value: "reverse" }}
+          position={[0.04, 0.022, -0.04]}
+          rotationY={-0.12}
+        />
+
+        {/* Underlying Fanned Card 3 (Blue Skip tilted right +14°) */}
+        <Card3DFlat
+          card={{ color: "blue", value: "skip" }}
+          position={[-0.02, 0.032, -0.02]}
+          rotationY={0.24}
+        />
+
+        {/* Top Active Card lying on top of the pile */}
+        {topCard && (
+          <Card3DFlat
+            card={topCard}
+            position={[0, 0.048, 0]}
+            rotationY={0.04}
+          />
+        )}
+
+        {/* Neon Active Color Point Light pool */}
+        <pointLight
+          position={[0, 0.55, 0]}
+          color={activeColorHex}
+          intensity={6.0}
+          distance={4.5}
+          decay={2}
+        />
+
+        {/* Pure 3D Discard Count Badge lying flat on felt */}
+        <CardPillBadge3D text="Discard" count={discardCount} />
       </group>
 
-      {/* 3D Draw Deck (Right of Center) */}
-      <group position={[1.4, 0, 0]}>
-        <Html center distanceFactor={13}>
-          <div
+      {/* 2. 3D DRAW DECK (Thick 3D block resting on the table felt) */}
+      <group position={[1.25, 0, 0]}>
+        {/* Soft contact shadow beneath deck */}
+        {shadowTexture && (
+          <mesh position={[0.05, 0.005, -0.05]} rotation={[-Math.PI / 2, 0, 0.04]}>
+            <planeGeometry args={[1.7, 2.5]} />
+            <meshBasicMaterial map={shadowTexture} transparent opacity={0.65} />
+          </mesh>
+        )}
+
+        {/* Animated Deck Group for Hover Physics */}
+        <group ref={deckMeshRef} position={[0, 0.15, 0]}>
+          {/* Physical 3D Deck Box Mesh with Glowing Cyan Edges */}
+          <mesh
+            rotation={[0, 0.04, 0]}
+            onPointerOver={() => canDraw && setHoverDeck(true)}
+            onPointerOut={() => setHoverDeck(false)}
             onClick={canDraw ? onDraw : undefined}
-            className={`cursor-pointer transition-transform duration-200 select-none ${
-              canDraw ? "hover:scale-105 active:scale-95" : "opacity-80"
-            }`}
+            cursor={canDraw ? "pointer" : "default"}
           >
-            <div className="draw-deck-3d rounded-2xl">
-              <UnoCard back />
-            </div>
-            <div className="mt-3 flex justify-center">
-              <span className="rounded-full border border-sky-400/50 bg-black/90 px-3 py-0.5 text-xs font-black text-sky-300 shadow-xl">
-                Deck: <strong className="text-yellow-300">{deckCount}</strong>
-              </span>
-            </div>
-          </div>
-        </Html>
+            <boxGeometry args={[1.48, 0.28, 2.24]} />
+            <meshStandardMaterial
+              color="#075985"
+              emissive="#0284c7"
+              emissiveIntensity={hoverDeck && canDraw ? 2.8 : 1.3}
+              roughness={0.25}
+              metalness={0.3}
+            />
+          </mesh>
+
+          {/* Top Face UNO Card Back on the Deck */}
+          <mesh position={[0, 0.145, 0]} rotation={[-Math.PI / 2, 0, 0.04]}>
+            <planeGeometry args={[1.46, 2.22]} />
+            {deckTexture && (
+              <meshStandardMaterial map={deckTexture} roughness={0.3} />
+            )}
+          </mesh>
+        </group>
+
+        {/* Pure 3D Deck Count Badge lying flat on felt */}
+        <CardPillBadge3D
+          text="Deck"
+          count={deckCount}
+          isDeck={true}
+          canDraw={canDraw}
+          onClick={canDraw ? onDraw : undefined}
+        />
       </group>
     </group>
   );
 }
 
-// Opponent Pods anchored in 3D Space along the table rim matching Mockup #1
-function OpponentPods3D({ opponents, activePlayer, turnTimer, activeReactions }) {
-  const seatPositions3D = [
-    { pos: [-5.8, 0.4, 0.0], label: "Mira", color: "#ef4444", turnClass: "turn-ring-red" },
-    { pos: [-3.2, 0.8, -2.8], label: "Elara", color: "#38bdf8", turnClass: "turn-ring-blue" },
-    { pos: [0.0, 1.1, -3.4], label: "Kai", color: "#22c55e", turnClass: "turn-ring-green" },
-    { pos: [5.6, 0.4, 0.0], label: "Leo", color: "#facc15", turnClass: "turn-ring-yellow" },
-  ];
+// Opponent Pods anchored in balanced positions around the 3D table perimeter (Mockup 1)
+function OpponentSeats3D({ opponents, activePlayer, turnTimer, activeReactions }) {
+  // Dynamically calculate balanced positions based on total opponents
+  const getSeatConfig = (idx, total) => {
+    if (total === 1) {
+      return { pos: [0.0, 0.65, -3.0], color: "#22c55e", ringClass: "turn-ring-green" };
+    }
+    if (total === 2) {
+      return idx === 0
+        ? { pos: [-3.8, 0.55, -2.4], color: "#38bdf8", ringClass: "turn-ring-blue" }
+        : { pos: [3.8, 0.55, -2.4], color: "#facc15", ringClass: "turn-ring-yellow" };
+    }
+    if (total === 3) {
+      const presets = [
+        { pos: [-5.2, 0.35, -0.6], color: "#ef4444", ringClass: "turn-ring-red" },
+        { pos: [0.0, 0.65, -3.0], color: "#22c55e", ringClass: "turn-ring-green" },
+        { pos: [5.2, 0.35, -0.6], color: "#facc15", ringClass: "turn-ring-yellow" },
+      ];
+      return presets[idx];
+    }
+    // 4 or more
+    const presets = [
+      { pos: [-5.4, 0.3, 0.0], color: "#ef4444", ringClass: "turn-ring-red" },
+      { pos: [-2.9, 0.6, -2.5], color: "#38bdf8", ringClass: "turn-ring-blue" },
+      { pos: [2.9, 0.6, -2.5], color: "#22c55e", ringClass: "turn-ring-green" },
+      { pos: [5.4, 0.3, 0.0], color: "#facc15", ringClass: "turn-ring-yellow" },
+    ];
+    return presets[idx % presets.length];
+  };
 
   return (
     <group>
       {opponents.map((player, idx) => {
-        const seat = seatPositions3D[idx % seatPositions3D.length];
+        const seat = getSeatConfig(idx, opponents.length);
         const isCurrentTurn = player.isTurn;
         const reaction = activeReactions[player.username];
 
         return (
           <group key={player.id} position={seat.pos}>
-            <Html center distanceFactor={14}>
+            <Html center distanceFactor={13}>
               <div className="relative flex flex-col items-center select-none pointer-events-auto">
                 {/* Floating Reaction Speech Bubble */}
                 {reaction && Date.now() - reaction.timestamp < 4500 && (
@@ -216,21 +840,21 @@ function OpponentPods3D({ opponents, activePlayer, turnTimer, activeReactions })
                   {/* Current Turn Glowing Ring Badge */}
                   {isCurrentTurn && (
                     <div
-                      className={`flex flex-col items-center justify-center rounded-full border-2 p-1.5 ${seat.turnClass} bg-black/80 shadow-2xl`}
+                      className={`flex flex-col items-center justify-center rounded-full border-2 p-1.5 ${seat.ringClass} bg-black/85 shadow-2xl`}
                     >
                       <span className="text-[7px] font-black uppercase tracking-tight text-zinc-300">CURRENT</span>
                       <span className="text-[8px] font-black uppercase text-yellow-300">TURN</span>
                     </div>
                   )}
 
-                  {/* Cyber Hexagon Pod with Hero Avatar */}
+                  {/* Cyber Hexagon Pod with Avatar */}
                   <div
                     className={`relative rounded-2xl p-1 transition-transform duration-200 ${
                       isCurrentTurn ? "scale-110" : ""
                     }`}
                     style={{
-                      background: `linear-gradient(135deg, ${seat.color} 0%, rgba(15,23,42,0.9) 100%)`,
-                      boxShadow: isCurrentTurn ? `0 0 28px ${seat.color}` : `0 4px 15px rgba(0,0,0,0.6)`,
+                      background: `linear-gradient(135deg, ${seat.color} 0%, rgba(15,23,42,0.95) 100%)`,
+                      boxShadow: isCurrentTurn ? `0 0 32px ${seat.color}` : `0 4px 15px rgba(0,0,0,0.6)`,
                     }}
                   >
                     <CyberAvatar
@@ -269,11 +893,11 @@ function OpponentPods3D({ opponents, activePlayer, turnTimer, activeReactions })
       })}
 
       {opponents.length === 0 && (
-        <group position={[0, 1.1, -3.2]}>
-          <Html center distanceFactor={14}>
-            <div className="rounded-2xl border border-dashed border-white/20 bg-black/85 px-6 py-4 text-center backdrop-blur-md shadow-2xl">
+        <group position={[0, 0.65, -3.0]}>
+          <Html center distanceFactor={13}>
+            <div className="rounded-2xl border border-dashed border-white/20 bg-black/85 px-6 py-4 text-center backdrop-blur-md shadow-2xl select-none">
               <p className="text-sm font-bold text-zinc-200">Waiting for opponents to take seats...</p>
-              <p className="mt-1 text-xs text-zinc-400">Invite friends or join public table</p>
+              <p className="mt-1 text-xs text-zinc-400">Share table code with friends</p>
             </div>
           </Html>
         </group>
@@ -304,32 +928,32 @@ export default function Arena3DTable({
 
   if (!mounted) {
     return (
-      <div className="flex h-[560px] sm:h-[660px] w-full items-center justify-center text-zinc-400">
+      <div className="flex size-full items-center justify-center text-zinc-400">
         <div className="size-10 animate-spin rounded-full border-4 border-yellow-400 border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="relative h-[560px] sm:h-[660px] w-full select-none overflow-hidden rounded-3xl">
+    <div className="absolute inset-0 z-0 select-none overflow-hidden">
       <Canvas
-        camera={{ position: [0, 6.6, 7.6], fov: 46 }}
+        camera={{ position: [0, 4.9, 6.3], fov: 46 }}
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
       >
-        {/* Atmospheric Lighting */}
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[0, 10, 8]} intensity={1.5} />
-        <directionalLight position={[0, -4, -10]} intensity={0.5} color="#38bdf8" />
+        {/* Atmospheric Esports Arena Lighting */}
+        <ambientLight intensity={0.65} />
+        <directionalLight position={[0, 10, 8]} intensity={1.8} />
+        <directionalLight position={[0, -4, -10]} intensity={0.7} color="#38bdf8" />
 
-        {/* 3D Arena Stadium Environment & Lasers */}
-        <ArenaStadiumLasers />
+        {/* 3D Arena Stadium Floor Grid & Curved Lasers */}
+        <StadiumEnvironmentLasers />
 
         {/* 3D Round / Oval Digital Felt Table */}
-        <TableMesh activeColorHex={activeColorHex} />
+        <Table3DMesh activeColorHex={activeColorHex} />
 
-        {/* 3D Center Cards (Fanned Discard Stack + Draw Deck) */}
-        <CenterCards3D
+        {/* 3D Center Cards lying FLAT on the table felt */}
+        <CenterTableCards3D
           topCard={room?.topCard}
           discardCount={room?.discardCount || 0}
           deckCount={room?.deckCount || 0}
@@ -339,7 +963,7 @@ export default function Arena3DTable({
         />
 
         {/* 3D Seated Opponents with Hexagon Pods & Turn Rings */}
-        <OpponentPods3D
+        <OpponentSeats3D
           opponents={opponents}
           activePlayer={activePlayer}
           turnTimer={turnTimer}
